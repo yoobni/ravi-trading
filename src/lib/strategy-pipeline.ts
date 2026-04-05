@@ -19,6 +19,8 @@ import {
   getBalanceSummary,
   loadBalance,
 } from '@/lib/paper-trading-engine';
+import { executeLiveBuy, executeLiveSell } from '@/lib/live-trading-engine';
+import { getConfig } from '@/lib/config-manager';
 import {
   checkBuyRisk,
   getTodayStats,
@@ -249,6 +251,20 @@ async function runRiskCheck(
       return { result, trace: endTrace(t) };
     }
 
+    // 신뢰도 필터 (minConfidence)
+    const minConfidence = getConfig().trading?.minConfidence ?? 0;
+    if (decision.confidence < minConfidence) {
+      const result: RiskStageResult = {
+        market,
+        originalDecision: decision,
+        riskCheck: null,
+        allowed: false,
+        adjustedAmount: null,
+        blockReason: `신뢰도 미달: ${decision.confidence}% < 설정값 ${minConfidence}%`,
+      };
+      return { result, trace: endTrace(t) };
+    }
+
     // 매수 금액 산출 (paper-trading-engine의 실제 잔고 기준)
     const availableBalance = loadBalance().cash;
     const rawAmount = Math.round(availableBalance * decision.suggestedSizeRate);
@@ -313,13 +329,19 @@ async function runRiskCheck(
 // 5단계: 주문 실행 (종목별)
 // ──────────────────────────────────────────────
 
-function runExecution(
+async function runExecution(
   market: string,
   judgment: JudgmentStageResult,
   riskResult: RiskStageResult,
   currentPrice: number,
-): { result: ExecutionStageResult; trace: StageTrace } {
+): Promise<{ result: ExecutionStageResult; trace: StageTrace }> {
   const t = startTrace('execution');
+  const tradingMode = getConfig().tradingMode ?? 'paper';
+
+  // 실거래 모드일 때 명시적 경고
+  if (tradingMode === 'live') {
+    console.warn(`[파이프라인] ⚠️  실거래 모드 (LIVE) — ${market} 실계좌 주문 실행`);
+  }
 
   try {
     const { decision } = judgment;
@@ -342,7 +364,9 @@ function runExecution(
       }
 
       const buyAmount = riskResult.adjustedAmount!;
-      const execResult = executeBuy(market, currentPrice, buyAmount, decision.reasoning);
+      const execResult = tradingMode === 'live'
+        ? await executeLiveBuy(market, buyAmount, currentPrice, decision.reasoning)
+        : executeBuy(market, currentPrice, buyAmount, decision.reasoning);
 
       const execution: CycleExecution = {
         action: 'buy',
@@ -356,7 +380,7 @@ function runExecution(
 
       if (execResult.success) {
         console.log(
-          `[파이프라인] ${market} 매수 체결: ` +
+          `[파이프라인] ${market} 매수 체결 (${tradingMode}): ` +
           `${execResult.executedPrice.toLocaleString()}원 × ${execResult.totalSettlement.toLocaleString()}원`,
         );
       }
@@ -375,7 +399,33 @@ function runExecution(
       }
 
       const position = positions[0]; // 가장 오래된 포지션
-      const execResult = executeSell(position.id, currentPrice, decision.reasoning);
+
+      let execResult;
+      if (tradingMode === 'live') {
+        // 실거래: Upbit 계좌의 실제 보유 수량으로 매도
+        const client = getUpbitClient();
+        const accounts = await client.getAccounts();
+        const coin = market.split('-')[1]; // "KRW-BTC" → "BTC"
+        const account = accounts.find((a) => a.currency === coin);
+        const liveVolume = account ? parseFloat(account.balance) : position.volume;
+
+        if (liveVolume <= 0) {
+          return {
+            result: { market, execution: null, skipReason: `실거래 잔고 없음: ${coin}` },
+            trace: endTrace(t),
+          };
+        }
+
+        execResult = await executeLiveSell(
+          market,
+          liveVolume,
+          currentPrice,
+          decision.reasoning,
+          position.id,
+        );
+      } else {
+        execResult = executeSell(position.id, currentPrice, decision.reasoning);
+      }
 
       const execution: CycleExecution = {
         action: 'sell',
@@ -389,7 +439,7 @@ function runExecution(
 
       if (execResult.success) {
         console.log(
-          `[파이프라인] ${market} 매도 체결: ` +
+          `[파이프라인] ${market} 매도 체결 (${tradingMode}): ` +
           `${execResult.executedPrice.toLocaleString()}원 × ${execResult.totalSettlement.toLocaleString()}원`,
         );
       }
@@ -441,7 +491,7 @@ async function runMarketPipeline(
     traces.push(riskOut.trace);
 
     // 5단계: 실행
-    const execOut = runExecution(market, judgment, riskCheck, analysis.currentPrice);
+    const execOut = await runExecution(market, judgment, riskCheck, analysis.currentPrice);
     execution = execOut.result;
     traces.push(execOut.trace);
 
