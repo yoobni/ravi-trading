@@ -10,20 +10,25 @@ import path from 'path';
 import { getUpbitClient } from '@/lib/upbit-client';
 import {
   STATE_FILE as F1F2_STATE_FILE,
+  POSITIONS_FILE as F1F2_POSITIONS_FILE,
   INITIAL_CASH_KRW as F1F2_INITIAL_CASH,
   TP_PCT as F1F2_TP_PCT,
   SL_PCT as F1F2_SL_PCT,
   MAX_DAYS as F1F2_MAX_DAYS,
 } from '@/lib/paper-trading-store';
 import {
-  F6_STATE_FILE, F6_INITIAL_CASH_KRW, F6_TP_PCT, F6_SL_PCT, F6_MAX_BARS,
+  F6_STATE_FILE, F6_TRADES_FILE, F6_INITIAL_CASH_KRW, F6_TP_PCT, F6_SL_PCT, F6_MAX_BARS,
 } from '@/lib/paper-f6-store';
 import {
-  F6V2_STATE_FILE, F6V2_INITIAL_CASH_KRW, F6V2_TP_PCT, F6V2_SL_PCT, F6V2_MAX_BARS,
+  F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_INITIAL_CASH_KRW, F6V2_TP_PCT, F6V2_SL_PCT, F6V2_MAX_BARS,
 } from '@/lib/paper-f6v2-store';
 import {
-  F6V3_STATE_FILE, F6V3_INITIAL_CASH_KRW, F6V3_TP_PCT, F6V3_SL_PCT, F6V3_MAX_BARS,
+  F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_INITIAL_CASH_KRW, F6V3_TP_PCT, F6V3_SL_PCT, F6V3_MAX_BARS,
 } from '@/lib/paper-f6v3-store';
+import {
+  computeStrategyMetrics, computePortfolio,
+  type StrategyMetrics, type ClosedTradeLite,
+} from '@/lib/paper-metrics';
 
 interface PaperStrategy {
   id: string;
@@ -48,6 +53,7 @@ interface PaperStrategy {
     daysHeld: number;
   }>;
   lastTickAt: string | null;
+  metrics: StrategyMetrics;
 }
 
 interface F1F2Position {
@@ -61,6 +67,18 @@ interface F1F2Position {
 function safeReadJson<T>(p: string): T | null {
   if (!fs.existsSync(p)) return null;
   try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return null; }
+}
+
+function readJsonl<T>(p: string): T[] {
+  if (!fs.existsSync(p)) return [];
+  try {
+    return fs.readFileSync(p, 'utf-8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  } catch { return []; }
+}
+
+/** F6 계열 trades.jsonl → ClosedTradeLite */
+function tradesFromFile(p: string): ClosedTradeLite[] {
+  return readJsonl<any>(p).map((t) => ({ profitKrw: t.profitKrw, exitTs: t.exitTs }));
 }
 
 function daysSince(date: string): number {
@@ -94,6 +112,7 @@ export async function GET() {
   }
 
   const strategies: PaperStrategy[] = [];
+  const portfolioInputs: Array<{ initial: number; equity: number; trades: ClosedTradeLite[] }> = [];
 
   // F1F2_50
   if (f1f2State?.strategies?.FUNDING_F1F2_50) {
@@ -118,6 +137,17 @@ export async function GET() {
       });
     }
     const equity = st.cash + positionValue;
+    const f1f2Trades: ClosedTradeLite[] = readJsonl<any>(F1F2_POSITIONS_FILE)
+      .filter((t) => t.strategy === 'FUNDING_F1F2_50')
+      .map((t) => ({ profitKrw: t.profitKrw, exitTs: Date.parse(t.exitDate) }));
+    const metrics = computeStrategyMetrics({
+      initial: F1F2_INITIAL_CASH,
+      cash: st.cash,
+      positions: pos ? [{ cashUsed: pos.buyAmount, vol: pos.vol, entryPrice: pos.entryPrice, market: 'KRW-BTC' }] : [],
+      trades: f1f2Trades,
+      currentPrices: priceByMarket,
+    });
+    portfolioInputs.push({ initial: F1F2_INITIAL_CASH, equity, trades: f1f2Trades });
     strategies.push({
       id: 'F1F2_50',
       name: 'FUNDING_F1F2_50 (MAIN)',
@@ -132,6 +162,7 @@ export async function GET() {
       totalRealizedPnl: st.totalRealizedPnl || 0,
       positions,
       lastTickAt: f1f2State.lastTickDate || null,
+      metrics,
     });
   }
 
@@ -157,6 +188,8 @@ export async function GET() {
       });
     }
     const equity = f6v2State.cash + positionValue;
+    const f6v2Trades = tradesFromFile(F6V2_TRADES_FILE);
+    portfolioInputs.push({ initial: F6V2_INITIAL_CASH_KRW, equity, trades: f6v2Trades });
     strategies.push({
       id: 'F6_v2',
       name: 'F6_v2 NEW_HIGH 42 (TP_OPT)',
@@ -171,6 +204,10 @@ export async function GET() {
       totalRealizedPnl: f6v2State.totalRealizedPnl || 0,
       positions,
       lastTickAt: f6v2State.lastTickAt || null,
+      metrics: computeStrategyMetrics({
+        initial: F6V2_INITIAL_CASH_KRW, cash: f6v2State.cash,
+        positions: f6v2State.positions || [], trades: f6v2Trades, currentPrices: priceByMarket,
+      }),
     });
   }
 
@@ -196,6 +233,8 @@ export async function GET() {
       });
     }
     const equity = f6State.cash + positionValue;
+    const f6Trades = tradesFromFile(F6_TRADES_FILE);
+    portfolioInputs.push({ initial: F6_INITIAL_CASH_KRW, equity, trades: f6Trades });
     strategies.push({
       id: 'F6',
       name: 'F6 NEW_HIGH 42',
@@ -210,6 +249,10 @@ export async function GET() {
       totalRealizedPnl: f6State.totalRealizedPnl || 0,
       positions,
       lastTickAt: f6State.lastTickAt || null,
+      metrics: computeStrategyMetrics({
+        initial: F6_INITIAL_CASH_KRW, cash: f6State.cash,
+        positions: f6State.positions || [], trades: f6Trades, currentPrices: priceByMarket,
+      }),
     });
   }
 
@@ -235,6 +278,8 @@ export async function GET() {
       });
     }
     const equity = f6v3State.cash + positionValue;
+    const f6v3Trades = tradesFromFile(F6V3_TRADES_FILE);
+    portfolioInputs.push({ initial: F6V3_INITIAL_CASH_KRW, equity, trades: f6v3Trades });
     strategies.push({
       id: 'F6_v3',
       name: 'F6_v3 NEW_HIGH 42 (CONFIRM)',
@@ -249,11 +294,16 @@ export async function GET() {
       totalRealizedPnl: f6v3State.totalRealizedPnl || 0,
       positions,
       lastTickAt: f6v3State.lastTickAt || null,
+      metrics: computeStrategyMetrics({
+        initial: F6V3_INITIAL_CASH_KRW, cash: f6v3State.cash,
+        positions: f6v3State.positions || [], trades: f6v3Trades, currentPrices: priceByMarket,
+      }),
     });
   }
 
   const totalCapital = strategies.reduce((s, x) => s + x.capitalAlloc, 0);
   const totalEquity = strategies.reduce((s, x) => s + x.totalEquity, 0);
+  const portfolio = computePortfolio(portfolioInputs);
 
   return NextResponse.json({
     strategies,
@@ -261,6 +311,8 @@ export async function GET() {
       capitalAlloc: totalCapital,
       totalEquity,
       returnRate: totalCapital > 0 ? (totalEquity - totalCapital) / totalCapital * 100 : 0,
+      realizedMdd: portfolio.realizedMdd,
+      trades: portfolio.trades,
     },
     now: new Date().toISOString(),
   });

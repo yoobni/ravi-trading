@@ -25,13 +25,28 @@ interface PaperStrategy {
     daysHeld: number;
   }>;
   lastTickAt: string | null;
+  metrics: {
+    totalReturn: number;
+    pf: number;
+    wr: number;
+    trades: number;
+    realizedMdd: number;
+    passStatus: 'on-track' | 'hold' | 'fail' | 'insufficient';
+  };
 }
 
 interface PaperApiResponse {
   strategies: PaperStrategy[];
-  total: { capitalAlloc: number; totalEquity: number; returnRate: number };
+  total: { capitalAlloc: number; totalEquity: number; returnRate: number; realizedMdd: number; trades: number };
   now: string;
 }
+
+const PASS_BADGE: Record<PaperStrategy['metrics']['passStatus'], { label: string; cls: string }> = {
+  'on-track': { label: '통과 궤도', cls: 'bg-emerald-100 text-emerald-700' },
+  hold: { label: '보류', cls: 'bg-amber-100 text-amber-700' },
+  fail: { label: '미달', cls: 'bg-rose-100 text-rose-700' },
+  insufficient: { label: '표본부족', cls: 'bg-zinc-100 text-zinc-500' },
+};
 
 function fmtKrw(n: number): string {
   return Math.round(n).toLocaleString() + '원';
@@ -117,6 +132,12 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
+
+          <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap gap-x-6 gap-y-1 text-xs">
+            <span className="text-zinc-400">합성 실현 MDD <span className="font-semibold tabular-nums text-zinc-200">{fmtPct(total.realizedMdd, false)}</span></span>
+            <span className="text-zinc-400">누적 거래 <span className="font-semibold tabular-nums text-zinc-200">{total.trades}건</span></span>
+            <span className="text-zinc-500">통과기준 PF≥1.2 · total&gt;0 (무상관 분산 → 합성 MDD가 개별보다 낮은 게 정상)</span>
+          </div>
         </section>
 
         {/* Paper Strategies 카드 그리드 */}
@@ -140,6 +161,16 @@ export default function Dashboard() {
                       <div className={`text-lg font-bold tabular-nums shrink-0 ${profitPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
                         {fmtPct(s.returnRate)}
                       </div>
+                    </div>
+
+                    {/* 통과 기준 현황 */}
+                    <div className="flex items-center gap-2 mt-2 text-[10px]">
+                      <span className={`px-1.5 py-0.5 rounded font-semibold ${PASS_BADGE[s.metrics.passStatus].cls}`}>
+                        {PASS_BADGE[s.metrics.passStatus].label}
+                      </span>
+                      <span className="font-mono text-zinc-500 tabular-nums">
+                        PF {s.metrics.pf.toFixed(2)} · WR {s.metrics.wr.toFixed(0)}% · MDD {fmtPct(s.metrics.realizedMdd, false)} · {s.metrics.trades}건
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-xs mt-3">

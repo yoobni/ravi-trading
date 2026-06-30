@@ -28,6 +28,13 @@ import {
   type DailySnapshot,
   type StrategyName,
 } from '@/lib/paper-trading-store';
+import { F6_STATE_FILE, F6_TRADES_FILE, F6_INITIAL_CASH_KRW } from '@/lib/paper-f6-store';
+import { F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_INITIAL_CASH_KRW } from '@/lib/paper-f6v2-store';
+import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_INITIAL_CASH_KRW } from '@/lib/paper-f6v3-store';
+import {
+  computeStrategyMetrics, computePortfolio, PASS_LABEL,
+  type ClosedTradeLite,
+} from '@/lib/paper-metrics';
 
 const REPORTS_DIR = path.join(PAPER_DIR, 'reports');
 
@@ -353,6 +360,41 @@ function judgeMain(
     const fi = snap.funding_intensity != null ? snap.funding_intensity.toFixed(2) : '-';
     L.push(`| ${snap.date} | ${f} | ${fi} | ${snap.strategy_signal} | ${snap.position_state.FUNDING_F1F2_50} | ${snap.position_state.FUNDING_F1F2_100} | ${snap.volatility_regime ?? '-'} | ${snap.btc_trend_state ?? '-'} | ${snap.stablecoin_1d_change?.toFixed(2) ?? '-'}% |`);
   }
+  L.push('');
+
+  // ─── 전 전략 + 합성 포트폴리오 통과기준 현황 ───
+  // (open 포지션은 entryPrice 기준 = 보수적. 실현 지표 PF/WR/MDD는 trades 기반 정확)
+  const tradesFromFile = (p: string): ClosedTradeLite[] =>
+    readJsonl<any>(p).map((t) => ({ profitKrw: t.profitKrw, exitTs: t.exitTs }));
+
+  const f1f2Trades: ClosedTradeLite[] = readJsonl<any>(POSITIONS_FILE)
+    .filter((t) => t.strategy === 'FUNDING_F1F2_50')
+    .map((t) => ({ profitKrw: t.profitKrw, exitTs: Date.parse(t.exitDate) }));
+  const f6St = JSON.parse(fs.existsSync(F6_STATE_FILE) ? fs.readFileSync(F6_STATE_FILE, 'utf-8') : '{}');
+  const f6v2St = JSON.parse(fs.existsSync(F6V2_STATE_FILE) ? fs.readFileSync(F6V2_STATE_FILE, 'utf-8') : '{}');
+  const f6v3St = JSON.parse(fs.existsSync(F6V3_STATE_FILE) ? fs.readFileSync(F6V3_STATE_FILE, 'utf-8') : '{}');
+
+  const rows = [
+    { id: 'F1F2_50', initial: INITIAL_CASH_KRW, cash: state.strategies.FUNDING_F1F2_50.cash, positions: state.strategies.FUNDING_F1F2_50.position ? [{ cashUsed: state.strategies.FUNDING_F1F2_50.position.buyAmount, vol: state.strategies.FUNDING_F1F2_50.position.vol, entryPrice: state.strategies.FUNDING_F1F2_50.position.entryPrice }] : [], trades: f1f2Trades },
+    { id: 'F6',     initial: F6_INITIAL_CASH_KRW,   cash: f6St.cash ?? F6_INITIAL_CASH_KRW,   positions: f6St.positions ?? [],   trades: tradesFromFile(F6_TRADES_FILE) },
+    { id: 'F6_v2',  initial: F6V2_INITIAL_CASH_KRW, cash: f6v2St.cash ?? F6V2_INITIAL_CASH_KRW, positions: f6v2St.positions ?? [], trades: tradesFromFile(F6V2_TRADES_FILE) },
+    { id: 'F6_v3',  initial: F6V3_INITIAL_CASH_KRW, cash: f6v3St.cash ?? F6V3_INITIAL_CASH_KRW, positions: f6v3St.positions ?? [], trades: tradesFromFile(F6V3_TRADES_FILE) },
+  ];
+
+  L.push(`## 전 전략 통과기준 현황 (PF≥1.2 & total>0)`);
+  L.push('');
+  L.push(`| 전략 | total | PF | WR | 실현MDD | 거래 | 판정 |`);
+  L.push(`|------|-------|----|----|---------|------|------|`);
+  const portfolioInputs: Array<{ initial: number; equity: number; trades: ClosedTradeLite[] }> = [];
+  for (const r of rows) {
+    const m = computeStrategyMetrics({ initial: r.initial, cash: r.cash, positions: r.positions, trades: r.trades });
+    portfolioInputs.push({ initial: r.initial, equity: m.equity, trades: r.trades });
+    L.push(`| ${r.id} | ${fmtPct(m.totalReturn)} | ${m.pf.toFixed(2)} | ${m.wr.toFixed(0)}% | ${m.realizedMdd.toFixed(1)}% | ${m.trades} | ${PASS_LABEL[m.passStatus]} |`);
+  }
+  const pf = computePortfolio(portfolioInputs);
+  L.push('');
+  L.push(`**합성 포트폴리오**: total ${fmtPct(pf.totalReturn)} · 실현MDD ${pf.realizedMdd.toFixed(1)}% · 누적 ${pf.trades}건`);
+  L.push(`> F1F2↔F6 무상관(백테스트 0.08~0.16) → 합성 MDD가 개별 합보다 낮은 게 정상. open 포지션은 entryPrice 기준(보수적).`);
   L.push('');
 
   L.push(`---`);
