@@ -61,6 +61,61 @@ export function calcMA(closes: number[], period: number): MAResult {
   return { period, values: calcSMA(closes, period) };
 }
 
+/**
+ * ATR (Average True Range) — Wilder's smoothing.
+ * @param highs/lows/closes — 시간순(과거→최신) 배열
+ * @returns 같은 길이 배열, period 이전엔 null
+ */
+export function calcATR(
+  highs: number[], lows: number[], closes: number[], period = 14,
+): (number | null)[] {
+  const n = closes.length;
+  const result: (number | null)[] = new Array(n).fill(null);
+  if (n < period + 1) return result;
+
+  const trs: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i === 0) trs.push(highs[i] - lows[i]);
+    else {
+      const hl = highs[i] - lows[i];
+      const hc = Math.abs(highs[i] - closes[i - 1]);
+      const lc = Math.abs(lows[i] - closes[i - 1]);
+      trs.push(Math.max(hl, hc, lc));
+    }
+  }
+
+  // 초기 ATR = SMA of first period TRs
+  let atr = trs.slice(0, period).reduce((s, t) => s + t, 0) / period;
+  result[period - 1] = atr;
+
+  // Wilder's smoothing
+  for (let i = period; i < n; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+    result[i] = atr;
+  }
+  return result;
+}
+
+/**
+ * 누적 VWAP — 시작 인덱스부터 누적 계산.
+ * 백테스트에서 일별 리셋하려면 caller가 일별 split 후 호출.
+ * @returns 같은 길이 배열, 각 시점까지의 누적 VWAP
+ */
+export function calcCumulativeVWAP(
+  highs: number[], lows: number[], closes: number[], volumes: number[],
+): number[] {
+  const n = closes.length;
+  const result: number[] = new Array(n).fill(0);
+  let cumPV = 0, cumV = 0;
+  for (let i = 0; i < n; i++) {
+    const typical = (highs[i] + lows[i] + closes[i]) / 3;
+    cumPV += typical * volumes[i];
+    cumV += volumes[i];
+    result[i] = cumV > 0 ? cumPV / cumV : typical;
+  }
+  return result;
+}
+
 // ──────────────────────────────────────────────
 // RSI (Relative Strength Index)
 // ──────────────────────────────────────────────
@@ -259,6 +314,27 @@ export function analyze(candles: UpbitCandle[]): TechnicalAnalysis {
   const market = sorted[0].market;
   const timestamp = sorted[sorted.length - 1].timestamp;
 
+  // ATR 정보 (사이즈 조정용)
+  const highs = sorted.map((c) => c.high_price);
+  const lows = sorted.map((c) => c.low_price);
+  const atrSeries = calcATR(highs, lows, closes, 14);
+  const lastAtr = atrSeries[atrSeries.length - 1];
+  let atrInfo: TechnicalAnalysis['atrInfo'];
+  if (lastAtr !== null) {
+    // 최근 100캔들 ATR (또는 lookback 전체)에서 percentile
+    const lookback = Math.min(100, atrSeries.length);
+    const recent = atrSeries.slice(-lookback).filter((v): v is number => v !== null);
+    if (recent.length > 10) {
+      const belowCount = recent.filter((v) => v < lastAtr).length;
+      const avg = recent.reduce((s, v) => s + v, 0) / recent.length;
+      atrInfo = {
+        current: lastAtr,
+        percentile: (belowCount / recent.length) * 100,
+        ratioToAvg: avg > 0 ? lastAtr / avg : 1,
+      };
+    }
+  }
+
   return {
     market,
     timestamp,
@@ -272,5 +348,6 @@ export function analyze(candles: UpbitCandle[]): TechnicalAnalysis {
     macd: calcMACD(closes),
     bollingerBand: calcBollingerBands(closes),
     volume: calcVolumeAnalysis(volumes, closes),
+    atrInfo,
   };
 }

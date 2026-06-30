@@ -56,4 +56,13 @@ export interface TechnicalAnalysis {
   macd: MACDResult;
   bollingerBand: BollingerBandResult;
   volume: VolumeAnalysis;
+  /** ATR percentile 정보 (사이즈 조정용) — 최근 ATR이 lookback window에서 차지하는 백분위 */
+  atrInfo?: {
+    /** 현재 ATR 값 */
+    current: number;
+    /** 최근 100캔들 대비 percentile (0~100) */
+    percentile: number;
+    /** 평균 대비 비율 */
+    ratioToAvg: number;
+  };
 }

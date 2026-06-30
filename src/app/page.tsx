@@ -1,445 +1,200 @@
-import { getDashboardData } from '@/lib/dashboard-stats';
-import { listOrders, getOpenPositions } from '@/lib/order-store';
-import type { PerformanceSummary, DailyStats, MarketStats } from '@/types/dashboard';
-import type { Order } from '@/types/order';
-import Link from 'next/link';
+'use client';
 
-// ──────────────────────────────────────────────
-// 유틸
-// ──────────────────────────────────────────────
+import { useEffect, useState } from 'react';
 
-function fmt(n: number): string {
-  return n.toLocaleString('ko-KR');
+interface PaperStrategy {
+  id: string;
+  name: string;
+  description: string;
+  rule: string;
+  capitalAlloc: number;
+  cash: number;
+  positionValue: number;
+  totalEquity: number;
+  returnRate: number;
+  totalTrades: number;
+  totalRealizedPnl: number;
+  positions: Array<{
+    market: string;
+    entryDate: string;
+    entryPrice: number;
+    currentPrice: number;
+    vol: number;
+    profitRate: number;
+    profitKrw: number;
+    daysHeld: number;
+  }>;
+  lastTickAt: string | null;
 }
 
-function pct(n: number | null): string {
-  if (n === null) return '-';
-  const sign = n > 0 ? '+' : '';
-  return `${sign}${n.toFixed(2)}%`;
+interface PaperApiResponse {
+  strategies: PaperStrategy[];
+  total: { capitalAlloc: number; totalEquity: number; returnRate: number };
+  now: string;
 }
 
-function pnlColor(n: number): string {
-  if (n > 0) return 'text-emerald-600';
-  if (n < 0) return 'text-rose-600';
-  return 'text-zinc-500';
+function fmtKrw(n: number): string {
+  return Math.round(n).toLocaleString() + '원';
 }
 
-function pnlBg(n: number): string {
-  if (n > 0) return 'bg-emerald-50 border-emerald-200';
-  if (n < 0) return 'bg-rose-50 border-rose-200';
-  return 'bg-zinc-50 border-zinc-200';
+function fmtCompact(n: number): string {
+  if (Math.abs(n) >= 1e8) return `${(n / 1e8).toFixed(2)}억`;
+  if (Math.abs(n) >= 1e4) return `${(n / 1e4).toFixed(0)}만`;
+  return n.toLocaleString();
 }
 
-// ──────────────────────────────────────────────
-// KPI 카드
-// ──────────────────────────────────────────────
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  color,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  color?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide">{label}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${color ?? 'text-zinc-900'}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-zinc-400">{sub}</p>}
-    </div>
-  );
+function fmtPct(n: number, withSign = true): string {
+  const sign = n >= 0 ? '+' : '';
+  return `${withSign ? sign : ''}${n.toFixed(2)}%`;
 }
 
-// ──────────────────────────────────────────────
-// 성과 요약 섹션
-// ──────────────────────────────────────────────
+export default function Dashboard() {
+  const [paperData, setPaperData] = useState<PaperApiResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-function SummarySection({ s }: { s: PerformanceSummary }) {
-  return (
-    <section>
-      <h2 className="text-lg font-semibold text-zinc-800 mb-4">성과 요약</h2>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="총 수익률"
-          value={pct(s.totalReturnRate)}
-          sub={`${fmt(s.totalRealizedPnl)} KRW`}
-          color={pnlColor(s.totalReturnRate)}
-        />
-        <KpiCard
-          label="현재 자산"
-          value={`${fmt(s.currentAssets)} KRW`}
-          sub={`초기 ${fmt(s.initialCapital)} KRW`}
-        />
-        <KpiCard
-          label="승률"
-          value={`${s.winRate.toFixed(1)}%`}
-          sub={`${s.winCount}승 ${s.lossCount}패`}
-          color={s.winRate >= 50 ? 'text-emerald-600' : 'text-rose-600'}
-        />
-        <KpiCard
-          label="총 거래"
-          value={`${s.closedTradeCount}건`}
-          sub={`체결 ${s.totalTradeCount}건`}
-        />
-        <KpiCard
-          label="평균 수익률"
-          value={pct(s.avgReturnRate)}
-          color={pnlColor(s.avgReturnRate)}
-        />
-        <KpiCard
-          label="손익비"
-          value={s.profitLossRatio !== null ? s.profitLossRatio.toFixed(2) : '-'}
-          sub={`평균 이익 ${pct(s.avgWinRate)} / 손실 ${pct(s.avgLossRate)}`}
-        />
-        <KpiCard
-          label="최대 낙폭 (MDD)"
-          value={pct(s.maxDrawdown)}
-          sub={
-            s.maxDrawdownPeriod
-              ? `${s.maxDrawdownPeriod.peakAt.slice(0, 10)} ~ ${s.maxDrawdownPeriod.troughAt.slice(0, 10)}`
-              : undefined
-          }
-          color="text-rose-600"
-        />
-        <KpiCard
-          label="샤프 비율"
-          value={s.sharpeRatio !== null ? s.sharpeRatio.toFixed(2) : '-'}
-          sub="연환산 (무위험 3.5%)"
-        />
-      </div>
-    </section>
-  );
-}
-
-// ──────────────────────────────────────────────
-// 일별 통계 테이블
-// ──────────────────────────────────────────────
-
-function DailyStatsTable({ stats }: { stats: DailyStats[] }) {
-  if (stats.length === 0) {
-    return (
-      <section>
-        <h2 className="text-lg font-semibold text-zinc-800 mb-4">일별 통계</h2>
-        <p className="text-sm text-zinc-400">아직 거래 데이터가 없습니다.</p>
-      </section>
-    );
+  async function fetchData() {
+    try {
+      const res = await fetch('/api/paper-trading', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+      const json = await res.json();
+      setPaperData(json);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
   }
 
-  return (
-    <section>
-      <h2 className="text-lg font-semibold text-zinc-800 mb-4">일별 통계</h2>
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-100 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
-              <th className="px-4 py-3">날짜</th>
-              <th className="px-4 py-3 text-right">거래 수</th>
-              <th className="px-4 py-3 text-right">실현 손익</th>
-              <th className="px-4 py-3 text-right">수익률</th>
-              <th className="px-4 py-3 text-right">승률</th>
-              <th className="px-4 py-3 text-right">승/패</th>
-              <th className="px-4 py-3 text-right">누적 자산</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stats.map((d) => (
-              <tr key={d.date} className="border-b border-zinc-50 hover:bg-zinc-50/50">
-                <td className="px-4 py-2.5 font-mono text-xs">{d.date}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{d.tradeCount}</td>
-                <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${pnlColor(d.realizedPnl)}`}>
-                  {fmt(d.realizedPnl)}
-                </td>
-                <td className={`px-4 py-2.5 text-right tabular-nums ${pnlColor(d.returnRate)}`}>
-                  {pct(d.returnRate)}
-                </td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{d.winRate.toFixed(1)}%</td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-xs">
-                  <span className="text-emerald-600">{d.winCount}</span>
-                  {' / '}
-                  <span className="text-rose-600">{d.lossCount}</span>
-                </td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{fmt(d.cumulativeAssets)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-// ──────────────────────────────────────────────
-// 종목별 통계 테이블
-// ──────────────────────────────────────────────
+  if (loading) return <div className="p-8 text-zinc-700">로딩 중...</div>;
+  if (error) return <div className="p-8 text-rose-600">에러: {error}</div>;
+  if (!paperData) return null;
 
-function MarketStatsTable({ stats }: { stats: MarketStats[] }) {
-  if (stats.length === 0) {
-    return (
-      <section>
-        <h2 className="text-lg font-semibold text-zinc-800 mb-4">종목별 통계</h2>
-        <p className="text-sm text-zinc-400">아직 거래 데이터가 없습니다.</p>
-      </section>
-    );
-  }
+  const total = paperData.total;
+  const totalProfit = total.totalEquity - total.capitalAlloc;
 
   return (
-    <section>
-      <h2 className="text-lg font-semibold text-zinc-800 mb-4">종목별 통계</h2>
-      <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-zinc-100 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
-              <th className="px-4 py-3">종목</th>
-              <th className="px-4 py-3 text-right">거래 수</th>
-              <th className="px-4 py-3 text-right">총 손익</th>
-              <th className="px-4 py-3 text-right">평균 수익률</th>
-              <th className="px-4 py-3 text-right">승률</th>
-              <th className="px-4 py-3 text-right">최고 / 최저</th>
-              <th className="px-4 py-3 text-right">평균 보유</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stats.map((m) => (
-              <tr key={m.market} className="border-b border-zinc-50 hover:bg-zinc-50/50">
-                <td className="px-4 py-2.5 font-mono text-xs font-medium">{m.market}</td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{m.tradeCount}</td>
-                <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${pnlColor(m.totalPnl)}`}>
-                  {fmt(m.totalPnl)}
-                </td>
-                <td className={`px-4 py-2.5 text-right tabular-nums ${pnlColor(m.avgReturnRate)}`}>
-                  {pct(m.avgReturnRate)}
-                </td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{m.winRate.toFixed(1)}%</td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-xs">
-                  <span className="text-emerald-600">{pct(m.bestReturn)}</span>
-                  {' / '}
-                  <span className="text-rose-600">{pct(m.worstReturn)}</span>
-                </td>
-                <td className="px-4 py-2.5 text-right tabular-nums">{m.avgHoldingHours.toFixed(1)}h</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-// ──────────────────────────────────────────────
-// 보유 포지션 섹션
-// ──────────────────────────────────────────────
-
-function OpenPositionsSection({ positions }: { positions: Order[] }) {
-  if (positions.length === 0) {
-    return (
-      <section>
-        <h2 className="text-lg font-semibold text-zinc-800 mb-4">보유 포지션</h2>
-        <p className="text-sm text-zinc-400">현재 보유 중인 포지션이 없습니다.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <h2 className="text-lg font-semibold text-zinc-800 mb-4">
-        보유 포지션 <span className="text-sm font-normal text-zinc-400">({positions.length}건)</span>
-      </h2>
-      <div className="grid gap-3">
-        {positions.map((p) => (
-          <div key={p.id} className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <div className="flex items-center justify-between">
-              <span className="font-mono text-sm font-bold">{p.market}</span>
-              <span className="text-xs text-zinc-500">{p.filledAt?.slice(0, 16).replace('T', ' ')}</span>
-            </div>
-            <div className="mt-2 flex gap-6 text-sm">
-              <span>매수가: <strong className="tabular-nums">{fmt(p.price)}</strong></span>
-              <span>수량: <strong className="tabular-nums">{p.volume}</strong></span>
-              <span>금액: <strong className="tabular-nums">{fmt(p.totalAmount)} KRW</strong></span>
-            </div>
-            <p className="mt-2 text-xs text-zinc-600 leading-relaxed">{p.reasoning}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// ──────────────────────────────────────────────
-// 최근 거래 내역
-// ──────────────────────────────────────────────
-
-function RecentOrdersSection({ orders }: { orders: Order[] }) {
-  if (orders.length === 0) {
-    return (
-      <section>
-        <h2 className="text-lg font-semibold text-zinc-800 mb-4">최근 거래 내역</h2>
-        <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-sm">
-          <p className="text-zinc-400">아직 거래 내역이 없습니다.</p>
-          <p className="mt-1 text-xs text-zinc-300">모의 운영이 시작되면 여기에 거래가 표시됩니다.</p>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <h2 className="text-lg font-semibold text-zinc-800 mb-4">
-        최근 거래 내역 <span className="text-sm font-normal text-zinc-400">(최근 20건)</span>
-      </h2>
-      <div className="space-y-3">
-        {orders.map((o) => {
-          const isBuy = o.side === 'buy';
-          return (
-            <div
-              key={o.id}
-              className={`rounded-lg border p-4 ${
-                isBuy ? 'border-emerald-200 bg-emerald-50/50' : 'border-rose-200 bg-rose-50/50'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`inline-block rounded px-2 py-0.5 text-xs font-bold ${
-                      isBuy ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-                    }`}
-                  >
-                    {isBuy ? '매수' : '매도'}
-                  </span>
-                  <span className="font-mono text-sm font-bold">{o.market}</span>
-                  {o.profitRate !== null && (
-                    <span className={`text-sm font-bold ${pnlColor(o.profitRate)}`}>
-                      {pct(o.profitRate)}
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs text-zinc-500">
-                  {(o.filledAt ?? o.createdAt).slice(0, 16).replace('T', ' ')}
-                </span>
-              </div>
-              <div className="mt-2 flex gap-6 text-xs text-zinc-600">
-                <span>가격: <strong className="tabular-nums">{fmt(o.price)}</strong></span>
-                <span>수량: <strong className="tabular-nums">{o.volume}</strong></span>
-                <span>금액: <strong className="tabular-nums">{fmt(o.totalAmount)} KRW</strong></span>
-              </div>
-              <p className="mt-2 text-xs text-zinc-500 leading-relaxed">{o.reasoning}</p>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-// ──────────────────────────────────────────────
-// 실거래 전환 체크리스트
-// ──────────────────────────────────────────────
-
-function TransitionChecklist() {
-  const items = [
-    { label: '실 API 키 발급 (업비트 Open API)', desc: 'access_key, secret_key → .env에 설정' },
-    { label: '주문 엔드포인트 전환', desc: 'paper-trading-engine → upbit-client 실주문 API' },
-    { label: '잔고 연동', desc: '시뮬레이션 balance.json → 업비트 실계좌 잔고 조회' },
-    { label: 'IP 허용 목록 등록', desc: '업비트 API 서버 접근을 위한 IP 화이트리스트' },
-    { label: '주문 수량/금액 제한 설정', desc: '실거래 초기에는 소액으로 제한 권장' },
-    { label: '비상 정지 로직 확인', desc: 'emergency-liquidation, circuit-breaker 동작 검증' },
-    { label: '모의 운영 성과 검토', desc: '최소 1주일 이상 모의 운영 결과 확인 후 전환' },
-  ];
-
-  return (
-    <section>
-      <h2 className="text-lg font-semibold text-zinc-800 mb-4">실거래 전환 체크리스트</h2>
-      <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <ul className="space-y-3">
-          {items.map((item, i) => (
-            <li key={i} className="flex items-start gap-3">
-              <div className="mt-0.5 h-5 w-5 flex-shrink-0 rounded border-2 border-zinc-300 bg-white" />
-              <div>
-                <p className="text-sm font-medium text-zinc-800">{item.label}</p>
-                <p className="text-xs text-zinc-400">{item.desc}</p>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-4 text-xs text-zinc-400 border-t border-zinc-100 pt-3">
-          위 항목을 모두 확인한 후 보스 승인을 받아 전환합니다.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-// ──────────────────────────────────────────────
-// 메인 페이지
-// ──────────────────────────────────────────────
-
-export const dynamic = 'force-dynamic';
-
-export default function DashboardPage() {
-  const { summary, dailyStats, marketStats } = getDashboardData();
-  const recentOrders = listOrders({ limit: 20 });
-  const openPositions = getOpenPositions();
-
-  return (
-    <div className="min-h-screen bg-zinc-50">
+    <div className="min-h-screen bg-zinc-100">
       {/* 헤더 */}
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-zinc-900">
-                업비트 AI 자동매매 대시보드
-              </h1>
-              <p className="mt-1 text-xs text-zinc-400">
-                모의 운영 &middot; 마지막 갱신: {new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Link
-                href="/backtest"
-                className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition"
-              >
-                백테스트
-              </Link>
-              <Link
-                href="/review"
-                className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 transition"
-              >
-                2차 통합 리뷰
-              </Link>
-              <Link
-                href="/activity"
-                className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition"
-              >
-                활동 타임라인
-              </Link>
-            </div>
+      <header className="bg-white border-b border-zinc-200 sticky top-0 z-10">
+        <div className="mx-auto max-w-7xl px-6 py-3 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-zinc-900">Paper Strategies</h1>
+            <p className="text-[10px] text-zinc-500">각 1,000만원 독립 운영 · 30초 자동 갱신</p>
           </div>
         </div>
       </header>
 
-      {/* 콘텐츠 */}
-      <main className="mx-auto max-w-7xl px-6 py-8 space-y-10">
-        <SummarySection s={summary} />
-        <OpenPositionsSection positions={openPositions} />
+      <main className="mx-auto max-w-7xl px-6 py-6 space-y-6">
+        {/* 총합 */}
+        <section className="rounded-2xl bg-gradient-to-br from-zinc-900 to-zinc-800 p-6 text-white shadow-lg">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-300">
+                  운영 중 · F1F2 KST 11:00 / F6·F6_v2·F6_v3 매 4h
+                </span>
+              </div>
+              <p className="mt-2 text-3xl font-bold tabular-nums">{fmtKrw(total.totalEquity)}</p>
+              <p className="mt-1 text-xs text-zinc-400">시작 자본 {fmtKrw(total.capitalAlloc)}</p>
+            </div>
 
-        <div className="grid lg:grid-cols-2 gap-10">
-          <DailyStatsTable stats={dailyStats} />
-          <MarketStatsTable stats={marketStats} />
-        </div>
+            <div className="text-right">
+              <p className="text-xs text-zinc-400 uppercase tracking-wider">수익률</p>
+              <p className={`text-3xl font-bold tabular-nums ${total.returnRate > 0 ? 'text-emerald-400' : total.returnRate < 0 ? 'text-rose-400' : 'text-zinc-300'}`}>
+                {fmtPct(total.returnRate)}
+              </p>
+              <p className={`mt-1 text-xs tabular-nums ${totalProfit > 0 ? 'text-emerald-400' : totalProfit < 0 ? 'text-rose-400' : 'text-zinc-400'}`}>
+                {totalProfit >= 0 ? '+' : ''}{fmtKrw(totalProfit)}
+              </p>
+            </div>
+          </div>
+        </section>
 
-        <RecentOrdersSection orders={recentOrders} />
-        <TransitionChecklist />
+        {/* Paper Strategies 카드 그리드 */}
+        {paperData.strategies.length > 0 && (
+          <section>
+            <h2 className="text-sm font-bold text-zinc-900 mb-3">전략별 현황</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {paperData.strategies.map((s) => {
+                const profitPositive = s.returnRate >= 0;
+                return (
+                  <div key={s.id} className="bg-white border border-zinc-200 rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-mono font-semibold text-zinc-500">{s.id}</span>
+                          <span className="font-bold text-zinc-900 truncate">{s.name}</span>
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-2">{s.description}</p>
+                        <p className="text-[10px] font-mono text-zinc-400 mt-0.5">{s.rule}</p>
+                      </div>
+                      <div className={`text-lg font-bold tabular-nums shrink-0 ${profitPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {fmtPct(s.returnRate)}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs mt-3">
+                      <div>
+                        <p className="text-[9px] text-zinc-500 uppercase">자산</p>
+                        <p className="font-mono font-semibold tabular-nums">{fmtKrw(s.totalEquity)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-zinc-500 uppercase">손익</p>
+                        <p className={`font-mono font-semibold tabular-nums ${(s.totalEquity - s.capitalAlloc) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {(s.totalEquity - s.capitalAlloc) >= 0 ? '+' : ''}{fmtKrw(s.totalEquity - s.capitalAlloc)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-zinc-500 uppercase">현금</p>
+                        <p className="font-mono tabular-nums text-zinc-700">{fmtCompact(s.cash)}원</p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] text-zinc-500 uppercase">실현 / 거래</p>
+                        <p className="font-mono tabular-nums text-zinc-700">{(s.totalRealizedPnl >= 0 ? '+' : '')}{fmtCompact(s.totalRealizedPnl)}원 / {s.totalTrades}건</p>
+                      </div>
+                    </div>
+
+                    {s.positions.length > 0 ? (
+                      <div className="mt-3 pt-3 border-t border-zinc-100">
+                        <p className="text-[9px] text-zinc-500 uppercase mb-1">보유 ({s.positions.length}종)</p>
+                        <div className="space-y-1">
+                          {s.positions.map((pos, i) => (
+                            <div key={i} className="flex justify-between text-[11px]">
+                              <span className="text-zinc-700">{pos.market.replace('KRW-', '')} <span className="text-zinc-400">·{pos.daysHeld}일</span></span>
+                              <span className={`font-semibold tabular-nums ${pos.profitRate >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {fmtPct(pos.profitRate)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-3 pt-3 border-t border-zinc-100">
+                        <p className="text-[10px] text-zinc-400">보유 없음 (cash)</p>
+                        {s.lastTickAt && (
+                          <p className="text-[9px] text-zinc-400 mt-0.5">마지막 tick: {new Date(s.lastTickAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </main>
 
-      {/* 푸터 */}
-      <footer className="border-t border-zinc-200 bg-white mt-10">
-        <div className="mx-auto max-w-7xl px-6 py-4 text-center text-xs text-zinc-400">
-          AI 자동매매 시스템 &middot; 모의 운영 모드 &middot; 실제 자금 거래 아님
-        </div>
+      <footer className="mx-auto max-w-7xl px-6 py-4 text-center text-[10px] text-zinc-400">
+        paper trading · 실제 자금 거래 아님 · F1F2: KST 11:00 / 1일 1회 · F6 / F6_v2 / F6_v3: 매 4h KST
       </footer>
     </div>
   );

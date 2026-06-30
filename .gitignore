@@ -48,3 +48,6 @@ next-env.d.ts
 
 # pm2 logs
 /logs/
+
+# 내부 handoff (커밋 X)
+/HANDOFF.md

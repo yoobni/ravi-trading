@@ -6,11 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "test:api": "tsx -r tsconfig-paths/register scripts/test-api.ts",
-    "dashboard": "tsx -r tsconfig-paths/register src/cli/dashboard.ts",
-    "dashboard:watch": "tsx -r tsconfig-paths/register src/cli/dashboard.ts --watch",
-    "sim:24h": "tsx -r tsconfig-paths/register scripts/simulation-24h.ts"
+    "lint": "eslint"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
