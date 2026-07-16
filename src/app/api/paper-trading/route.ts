@@ -26,6 +26,12 @@ import {
   F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_INITIAL_CASH_KRW, F6V3_TP_PCT, F6V3_SL_PCT, F6V3_MAX_BARS,
 } from '@/lib/paper-f6v3-store';
 import {
+  F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_INITIAL_CASH_KRW, F6V5_SL_PCT, F6V5_TRAIL_ACT, F6V5_TRAIL_GAP, F6V5_MAX_BARS,
+} from '@/lib/paper-f6v5-store';
+import {
+  F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_INITIAL_CASH_KRW, F6V6_SL_PCT, F6V6_TRAIL_ACT, F6V6_TRAIL_GAP, F6V6_MAX_BARS,
+} from '@/lib/paper-f6v6-store';
+import {
   computeStrategyMetrics, computePortfolio,
   type StrategyMetrics, type ClosedTradeLite,
 } from '@/lib/paper-metrics';
@@ -92,6 +98,8 @@ export async function GET() {
   const f6State = safeReadJson<any>(F6_STATE_FILE);
   const f6v2State = safeReadJson<any>(F6V2_STATE_FILE);
   const f6v3State = safeReadJson<any>(F6V3_STATE_FILE);
+  const f6v5State = safeReadJson<any>(F6V5_STATE_FILE);
+  const f6v6State = safeReadJson<any>(F6V6_STATE_FILE);
 
   // Collect all markets to fetch ticker
   const markets = new Set<string>();
@@ -99,6 +107,8 @@ export async function GET() {
   if (f6State?.positions) for (const p of f6State.positions) markets.add(p.market);
   if (f6v2State?.positions) for (const p of f6v2State.positions) markets.add(p.market);
   if (f6v3State?.positions) for (const p of f6v3State.positions) markets.add(p.market);
+  if (f6v5State?.positions) for (const p of f6v5State.positions) markets.add(p.market);
+  if (f6v6State?.positions) for (const p of f6v6State.positions) markets.add(p.market);
 
   const priceByMarket = new Map<string, number>();
   if (markets.size > 0) {
@@ -163,6 +173,58 @@ export async function GET() {
       positions,
       lastTickAt: f1f2State.lastTickDate || null,
       metrics,
+    });
+  }
+
+  // F1F2_100 (BENCHMARK) — F1F2_50 동일 신호, 자본 100% aggressive
+  if (f1f2State?.strategies?.FUNDING_F1F2_100) {
+    const st100 = f1f2State.strategies.FUNDING_F1F2_100;
+    const pos100 = st100.position as F1F2Position | null;
+    const positions100 = [];
+    let positionValue100 = 0;
+    if (pos100) {
+      const cur = priceByMarket.get('KRW-BTC') ?? pos100.entryPrice;
+      const profitRate = (cur - pos100.entryPrice) / pos100.entryPrice * 100;
+      const profitKrw = pos100.vol * cur - pos100.buyAmount;
+      positionValue100 = pos100.vol * cur;
+      positions100.push({
+        market: 'KRW-BTC',
+        entryDate: pos100.entryDate,
+        entryPrice: pos100.entryPrice,
+        currentPrice: cur,
+        vol: pos100.vol,
+        profitRate,
+        profitKrw,
+        daysHeld: daysSince(pos100.entryDate),
+      });
+    }
+    const equity100 = st100.cash + positionValue100;
+    const f1f2Trades100: ClosedTradeLite[] = readJsonl<any>(F1F2_POSITIONS_FILE)
+      .filter((t) => t.strategy === 'FUNDING_F1F2_100')
+      .map((t) => ({ profitKrw: t.profitKrw, exitTs: Date.parse(t.exitDate) }));
+    const metrics100 = computeStrategyMetrics({
+      initial: F1F2_INITIAL_CASH,
+      cash: st100.cash,
+      positions: pos100 ? [{ cashUsed: pos100.buyAmount, vol: pos100.vol, entryPrice: pos100.entryPrice, market: 'KRW-BTC' }] : [],
+      trades: f1f2Trades100,
+      currentPrices: priceByMarket,
+    });
+    portfolioInputs.push({ initial: F1F2_INITIAL_CASH, equity: equity100, trades: f1f2Trades100 });
+    strategies.push({
+      id: 'F1F2_100',
+      name: 'FUNDING_F1F2_100 (BENCHMARK)',
+      description: 'F1F2_50 동일 신호, 자본 100% aggressive 비교용.',
+      rule: `daily F1/F2 funding extreme → LONG @ open. TP+${F1F2_TP_PCT}%/SL${F1F2_SL_PCT}%/MAX ${F1F2_MAX_DAYS}d`,
+      capitalAlloc: F1F2_INITIAL_CASH,
+      cash: st100.cash,
+      positionValue: positionValue100,
+      totalEquity: equity100,
+      returnRate: (equity100 - F1F2_INITIAL_CASH) / F1F2_INITIAL_CASH * 100,
+      totalTrades: st100.totalTrades || 0,
+      totalRealizedPnl: st100.totalRealizedPnl || 0,
+      positions: positions100,
+      lastTickAt: f1f2State.lastTickDate || null,
+      metrics: metrics100,
     });
   }
 
@@ -297,6 +359,96 @@ export async function GET() {
       metrics: computeStrategyMetrics({
         initial: F6V3_INITIAL_CASH_KRW, cash: f6v3State.cash,
         positions: f6v3State.positions || [], trades: f6v3Trades, currentPrices: priceByMarket,
+      }),
+    });
+  }
+
+  // F6_v5 (TRAIL) — F6 신호 + 트레일링 스톱(승자 태우기). H4 백테스트 근거.
+  if (f6v5State) {
+    const positions = [];
+    let positionValue = 0;
+    for (const pos of (f6v5State.positions || [])) {
+      const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
+      const profitRate = (cur - pos.entryPrice) / pos.entryPrice * 100;
+      const profitKrw = pos.vol * cur - pos.cashUsed;
+      const v = pos.vol * cur;
+      positionValue += v;
+      positions.push({
+        market: pos.market,
+        entryDate: pos.entryDate,
+        entryPrice: pos.entryPrice,
+        currentPrice: cur,
+        vol: pos.vol,
+        profitRate,
+        profitKrw,
+        daysHeld: daysSince(pos.entryDate),
+      });
+    }
+    const equity = f6v5State.cash + positionValue;
+    const f6v5Trades = tradesFromFile(F6V5_TRADES_FILE);
+    portfolioInputs.push({ initial: F6V5_INITIAL_CASH_KRW, equity, trades: f6v5Trades });
+    strategies.push({
+      id: 'F6_v5',
+      name: 'F6_v5 NEW_HIGH 42 (TRAIL A2·안정)',
+      description: 'F6 신호 + 트레일링(act2/gap2, 안정형). 4년 PF1.51·MDD84%·승률45%, OOS PF1.47.',
+      rule: `7d high break + 양봉 + vol z≥0.5 → SL${F6V5_SL_PCT}%, +${F6V5_TRAIL_ACT}% 후 고점−${F6V5_TRAIL_GAP}% 트레일 / MAX ${F6V5_MAX_BARS/6}d, 33%×3`,
+      capitalAlloc: F6V5_INITIAL_CASH_KRW,
+      cash: f6v5State.cash,
+      positionValue,
+      totalEquity: equity,
+      returnRate: (equity - F6V5_INITIAL_CASH_KRW) / F6V5_INITIAL_CASH_KRW * 100,
+      totalTrades: f6v5State.totalTrades || 0,
+      totalRealizedPnl: f6v5State.totalRealizedPnl || 0,
+      positions,
+      lastTickAt: f6v5State.lastTickAt || null,
+      metrics: computeStrategyMetrics({
+        initial: F6V5_INITIAL_CASH_KRW, cash: f6v5State.cash,
+        positions: f6v5State.positions || [], trades: f6v5Trades, currentPrices: priceByMarket,
+      }),
+    });
+  }
+
+  // F6_v6 (TRAIL A4·수익) — F6 신호 + 트레일링(act4/gap2). F6_v5(A2)의 공격형 자매.
+  if (f6v6State) {
+    const positions = [];
+    let positionValue = 0;
+    for (const pos of (f6v6State.positions || [])) {
+      const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
+      const profitRate = (cur - pos.entryPrice) / pos.entryPrice * 100;
+      const profitKrw = pos.vol * cur - pos.cashUsed;
+      const v = pos.vol * cur;
+      positionValue += v;
+      positions.push({
+        market: pos.market,
+        entryDate: pos.entryDate,
+        entryPrice: pos.entryPrice,
+        currentPrice: cur,
+        vol: pos.vol,
+        profitRate,
+        profitKrw,
+        daysHeld: daysSince(pos.entryDate),
+      });
+    }
+    const equity = f6v6State.cash + positionValue;
+    const f6v6Trades = tradesFromFile(F6V6_TRADES_FILE);
+    portfolioInputs.push({ initial: F6V6_INITIAL_CASH_KRW, equity, trades: f6v6Trades });
+    strategies.push({
+      id: 'F6_v6',
+      name: 'F6_v6 NEW_HIGH (TRAIL 12h·A2)',
+      description: 'F6_v5(A2)를 12h봉에 적용. 4년 PF1.93·총익+1317%(4h대비↑) 대신 MDD↑. 4h와 병행 실측.',
+      rule: `[12h봉] 7d high break + 양봉 + vol z≥0.5 → SL${F6V6_SL_PCT}%, +${F6V6_TRAIL_ACT}% 후 고점−${F6V6_TRAIL_GAP}% 트레일 / MAX ${F6V6_MAX_BARS/2}d, 33%×3`,
+      capitalAlloc: F6V6_INITIAL_CASH_KRW,
+      cash: f6v6State.cash,
+      positionValue,
+      totalEquity: equity,
+      returnRate: (equity - F6V6_INITIAL_CASH_KRW) / F6V6_INITIAL_CASH_KRW * 100,
+      totalTrades: f6v6State.totalTrades || 0,
+      totalRealizedPnl: f6v6State.totalRealizedPnl || 0,
+      positions,
+      lastTickAt: f6v6State.lastTickAt || null,
+      metrics: computeStrategyMetrics({
+        initial: F6V6_INITIAL_CASH_KRW, cash: f6v6State.cash,
+        positions: f6v6State.positions || [], trades: f6v6Trades, currentPrices: priceByMarket,
       }),
     });
   }
