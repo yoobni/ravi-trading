@@ -6,6 +6,8 @@ import PaperHistory from '@/components/paper-history';
 interface PaperStrategy {
   id: string;
   name: string;
+  /** 합성 포트폴리오 제외 대상 (F1F2_100 = F1F2_50 과 동일 신호의 사이징 비교군) */
+  benchmark?: boolean;
   description: string;
   rule: string;
   capitalAlloc: number;
@@ -38,7 +40,7 @@ interface PaperStrategy {
 
 interface PaperApiResponse {
   strategies: PaperStrategy[];
-  total: { capitalAlloc: number; totalEquity: number; returnRate: number; realizedMdd: number; trades: number };
+  total: { capitalAlloc: number; totalEquity: number; returnRate: number; realizedMdd: number; trades: number; excluded?: string[] };
   now: string;
 }
 
@@ -120,7 +122,10 @@ export default function Dashboard() {
                 </span>
               </div>
               <p className="mt-2 text-3xl font-bold tabular-nums">{fmtKrw(total.totalEquity)}</p>
-              <p className="mt-1 text-xs text-zinc-400">시작 자본 {fmtKrw(total.capitalAlloc)}</p>
+              <p className="mt-1 text-xs text-zinc-400">
+                시작 자본 {fmtKrw(total.capitalAlloc)} · 운영 {paperData.strategies.filter((s) => !s.benchmark).length}전략
+                {total.excluded?.length ? ` (${total.excluded.join(', ')} 벤치마크 제외)` : ''}
+              </p>
             </div>
 
             <div className="text-right">
@@ -154,6 +159,9 @@ export default function Dashboard() {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] font-mono font-semibold text-zinc-500">{s.id}</span>
+                          {s.benchmark && (
+                            <span className="shrink-0 whitespace-nowrap px-1 py-px rounded bg-zinc-100 text-[9px] font-semibold text-zinc-500">합성 제외</span>
+                          )}
                           <span className="font-bold text-zinc-900 truncate">{s.name}</span>
                         </div>
                         <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-2">{s.description}</p>

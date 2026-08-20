@@ -450,6 +450,8 @@ function judgeMain(
     const { started, cash, positionValue } = f1f2AsOf(sn);
     return {
       id: sn === 'FUNDING_F1F2_50' ? 'F1F2_50' : 'F1F2_100',
+      // F1F2_100 은 F1F2_50 과 동일 신호의 사이징 비교군(상관 ≈ 1) → 표에는 두고 합성에서는 제외
+      benchmark: sn === 'FUNDING_F1F2_100',
       started,
       initial: INITIAL_CASH_KRW,
       cash,
@@ -461,11 +463,11 @@ function judgeMain(
   const rows = [
     f1f2Row('FUNDING_F1F2_50', f1f2Trades),
     f1f2Row('FUNDING_F1F2_100', f1f2Trades100),
-    { id: 'F6',    started: !!f6A.anchor,   initial: F6_INITIAL_CASH_KRW,   cash: f6A.cash,   positions: f6A.positions,   trades: f6Trades(f6A) },
-    { id: 'F6_v2', started: !!f6v2A.anchor, initial: F6V2_INITIAL_CASH_KRW, cash: f6v2A.cash, positions: f6v2A.positions, trades: f6Trades(f6v2A) },
-    { id: 'F6_v3', started: !!f6v3A.anchor, initial: F6V3_INITIAL_CASH_KRW, cash: f6v3A.cash, positions: f6v3A.positions, trades: f6Trades(f6v3A) },
-    { id: 'F6_v5', started: !!f6v5A.anchor, initial: F6V5_INITIAL_CASH_KRW, cash: f6v5A.cash, positions: f6v5A.positions, trades: f6Trades(f6v5A) },
-    { id: 'F6_v6', started: !!f6v6A.anchor, initial: F6V6_INITIAL_CASH_KRW, cash: f6v6A.cash, positions: f6v6A.positions, trades: f6Trades(f6v6A) },
+    { id: 'F6',    benchmark: false, started: !!f6A.anchor,   initial: F6_INITIAL_CASH_KRW,   cash: f6A.cash,   positions: f6A.positions,   trades: f6Trades(f6A) },
+    { id: 'F6_v2', benchmark: false, started: !!f6v2A.anchor, initial: F6V2_INITIAL_CASH_KRW, cash: f6v2A.cash, positions: f6v2A.positions, trades: f6Trades(f6v2A) },
+    { id: 'F6_v3', benchmark: false, started: !!f6v3A.anchor, initial: F6V3_INITIAL_CASH_KRW, cash: f6v3A.cash, positions: f6v3A.positions, trades: f6Trades(f6v3A) },
+    { id: 'F6_v5', benchmark: false, started: !!f6v5A.anchor, initial: F6V5_INITIAL_CASH_KRW, cash: f6v5A.cash, positions: f6v5A.positions, trades: f6Trades(f6v5A) },
+    { id: 'F6_v6', benchmark: false, started: !!f6v6A.anchor, initial: F6V6_INITIAL_CASH_KRW, cash: f6v6A.cash, positions: f6v6A.positions, trades: f6Trades(f6v6A) },
   ];
   const skipped = rows.filter((r) => !r.started).map((r) => r.id);
   const activeRows = rows.filter((r) => r.started);   // 그 시점에 tick/스냅샷이 없는 전략은 제외
@@ -477,12 +479,14 @@ function judgeMain(
   const portfolioInputs: Array<{ initial: number; equity: number; trades: ClosedTradeLite[] }> = [];
   for (const r of activeRows) {
     const m = computeStrategyMetrics({ initial: r.initial, cash: r.cash, positions: r.positions, trades: r.trades });
-    portfolioInputs.push({ initial: r.initial, equity: m.equity, trades: r.trades });
-    L.push(`| ${r.id} | ${fmtPct(m.totalReturn)} | ${m.pf.toFixed(2)} | ${m.wr.toFixed(0)}% | ${m.realizedMdd.toFixed(1)}% | ${m.trades} | ${PASS_LABEL[m.passStatus]} |`);
+    if (!r.benchmark) portfolioInputs.push({ initial: r.initial, equity: m.equity, trades: r.trades });
+    L.push(`| ${r.id}${r.benchmark ? ' (벤치마크)' : ''} | ${fmtPct(m.totalReturn)} | ${m.pf.toFixed(2)} | ${m.wr.toFixed(0)}% | ${m.realizedMdd.toFixed(1)}% | ${m.trades} | ${PASS_LABEL[m.passStatus]} |`);
   }
   const pf = computePortfolio(portfolioInputs);
   L.push('');
-  L.push(`**합성 포트폴리오**: total ${fmtPct(pf.totalReturn)} · 실현MDD ${pf.realizedMdd.toFixed(1)}% · 누적 ${pf.trades}건`);
+  const benchIds = activeRows.filter((r) => r.benchmark).map((r) => r.id);
+  L.push(`**합성 포트폴리오** (운영 ${activeRows.length - benchIds.length}전략 · 자본 ${(pf.initial / 1e4).toLocaleString()}만원): total ${fmtPct(pf.totalReturn)} · 실현MDD ${pf.realizedMdd.toFixed(1)}% · 누적 ${pf.trades}건`);
+  if (benchIds.length) L.push(`> ${benchIds.join(', ')} 는 F1F2_50 과 동일 신호의 사이징 비교군(상관 ≈ 1) → 표에만 표시하고 합성에서는 제외.`);
   L.push(`> F1F2↔F6 무상관(백테스트 0.08~0.16) → 합성 MDD가 개별 합보다 낮은 게 정상.`);
   L.push(`> open 포지션 평가: ${asofArg ? 'F1F2 는 해당일 스냅샷 종가 평가, F6 계열은 entryPrice 기준' : 'entryPrice 기준(보수적)'}.`);
   if (skipped.length) L.push(`> ⚠️ ${skipped.join(', ')} — 해당 시점 기록(tick/스냅샷) 없어 표·합성에서 제외.`);

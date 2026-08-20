@@ -39,6 +39,12 @@ import {
 interface PaperStrategy {
   id: string;
   name: string;
+  /**
+   * 합성 포트폴리오에서 제외되는 벤치마크 여부.
+   * F1F2_100 은 F1F2_50 과 동일 신호를 자본 100% 로 태운 사이징 비교군이라
+   * (상관 ≈ 1) 합성에 같이 넣으면 같은 전략을 이중 계산하게 된다.
+   */
+  benchmark?: boolean;
   description: string;
   rule: string;
   capitalAlloc: number;
@@ -209,10 +215,11 @@ export async function GET() {
       trades: f1f2Trades100,
       currentPrices: priceByMarket,
     });
-    portfolioInputs.push({ initial: F1F2_INITIAL_CASH, equity: equity100, trades: f1f2Trades100 });
+    // 합성 제외 (F1F2_50 과 동일 신호 · 상관 ≈ 1 — 사이징 비교군)
     strategies.push({
       id: 'F1F2_100',
       name: 'FUNDING_F1F2_100 (BENCHMARK)',
+      benchmark: true,
       description: 'F1F2_50 동일 신호, 자본 100% aggressive 비교용.',
       rule: `daily F1/F2 funding extreme → LONG @ open. TP+${F1F2_TP_PCT}%/SL${F1F2_SL_PCT}%/MAX ${F1F2_MAX_DAYS}d`,
       capitalAlloc: F1F2_INITIAL_CASH,
@@ -453,8 +460,10 @@ export async function GET() {
     });
   }
 
-  const totalCapital = strategies.reduce((s, x) => s + x.capitalAlloc, 0);
-  const totalEquity = strategies.reduce((s, x) => s + x.totalEquity, 0);
+  // 합계는 실제 운영 전략만 (벤치마크 제외) — portfolioInputs 와 같은 모집단
+  const operating = strategies.filter((x) => !x.benchmark);
+  const totalCapital = operating.reduce((s, x) => s + x.capitalAlloc, 0);
+  const totalEquity = operating.reduce((s, x) => s + x.totalEquity, 0);
   const portfolio = computePortfolio(portfolioInputs);
 
   return NextResponse.json({
@@ -465,6 +474,7 @@ export async function GET() {
       returnRate: totalCapital > 0 ? (totalEquity - totalCapital) / totalCapital * 100 : 0,
       realizedMdd: portfolio.realizedMdd,
       trades: portfolio.trades,
+      excluded: strategies.filter((x) => x.benchmark).map((x) => x.id),
     },
     now: new Date().toISOString(),
   });
