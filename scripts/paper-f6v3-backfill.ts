@@ -21,16 +21,29 @@ import fs from 'fs';
 const FOUR_H_MS = 4 * 3600_000;
 function kstISO(ts: number): string { return new Date(ts + 9 * 3600_000).toISOString(); }
 
-async function fetchBars(market: string, count = 80): Promise<BarLite[]> {
+async function fetchBars(market: string, count = 400): Promise<BarLite[]> {
+  // Upbit 는 요청당 200봉이 상한 → 필요한 만큼 to 파라미터로 페이지네이션.
   const client = getUpbitClient();
-  const candles = await client.getCandlesMinutes(240, market, count);
-  const sorted = candles.slice().reverse();
-  return sorted.map(c => ({
-    ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
-    open: (c as any).opening_price, high: (c as any).high_price,
-    low: (c as any).low_price, close: (c as any).trade_price,
-    volume: (c as any).candle_acc_trade_volume,
-  }));
+  const acc: any[] = [];
+  let to: string | undefined = undefined;
+  while (acc.length < count) {
+    const page = await client.getCandlesMinutes(240, market, Math.min(200, count - acc.length), to);
+    if (!page.length) break;
+    acc.push(...page);
+    to = (page[page.length - 1] as any).candle_date_time_utc;
+    if (page.length < 200) break;
+    await new Promise(r => setTimeout(r, 120));
+  }
+  const seen = new Set<number>();
+  return acc
+    .map(c => ({
+      ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
+      open: (c as any).opening_price, high: (c as any).high_price,
+      low: (c as any).low_price, close: (c as any).trade_price,
+      volume: (c as any).candle_acc_trade_volume,
+    }))
+    .filter(b => (seen.has(b.ts) ? false : (seen.add(b.ts), true)))
+    .sort((a, b) => a.ts - b.ts);
 }
 
 (async () => {
@@ -42,7 +55,7 @@ async function fetchBars(market: string, count = 80): Promise<BarLite[]> {
   const barsByMarket = new Map<string, BarLite[]>();
   for (const market of F6V3_COINS) {
     try {
-      const bars = await fetchBars(market, 80);
+      const bars = await fetchBars(market, 400);
       barsByMarket.set(market, bars);
       process.stdout.write('.');
       await new Promise(r => setTimeout(r, 150));

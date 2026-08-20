@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import PaperHistory from '@/components/paper-history';
 
 interface PaperStrategy {
   id: string;
@@ -222,6 +223,9 @@ export default function Dashboard() {
             </div>
           </section>
         )}
+
+        {/* 과거 기록 — 실현 자산 곡선 · tick 커버리지 · 거래 내역 */}
+        <PaperHistory />
       </main>
 
       <footer className="mx-auto max-w-7xl px-6 py-4 text-center text-[10px] text-zinc-400">

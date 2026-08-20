@@ -1,6 +1,12 @@
 /**
  * Paper trading 주간/월간 리포트.
  *
+ * `--asof YYYY-MM-DD` 를 주면 그 시점 기준으로 소급 재구성한다 (미생성 주간 리포트 백필용).
+ *   - 거래/신호/스냅샷은 그 날짜 이하만 사용
+ *   - F1F2 현금·평가액은 그 날 daily-snapshot 의 strategy_metrics 사용
+ *   - F6 계열은 ticks.jsonl + trades.jsonl 로 그 시점 상태 재구성 (paper-asof.ts)
+ *   - 보유 포지션은 리포트 기존 관례대로 entryPrice 기준 평가(보수적)
+ *
  * 라비 통과 기준 (3개월 후, MAIN = FUNDING_F1F2_50 기준):
  *   통과: PF≥1.2, 총수익 양수, MDD≤12%, 신호 ≥5~10, 손실 백테스트 대비 과도하지 않음
  *   보류: PF 1.0~1.2, 약보합, 신호 부족 / MDD 안정
@@ -28,9 +34,12 @@ import {
   type DailySnapshot,
   type StrategyName,
 } from '@/lib/paper-trading-store';
-import { F6_STATE_FILE, F6_TRADES_FILE, F6_INITIAL_CASH_KRW } from '@/lib/paper-f6-store';
-import { F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_INITIAL_CASH_KRW } from '@/lib/paper-f6v2-store';
-import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_INITIAL_CASH_KRW } from '@/lib/paper-f6v3-store';
+import { F6_STATE_FILE, F6_TRADES_FILE, F6_TICKS_FILE, F6_INITIAL_CASH_KRW, F6_FEE, F6_MAX_BARS } from '@/lib/paper-f6-store';
+import { F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_TICKS_FILE, F6V2_INITIAL_CASH_KRW, F6V2_FEE, F6V2_MAX_BARS } from '@/lib/paper-f6v2-store';
+import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_TICKS_FILE, F6V3_INITIAL_CASH_KRW, F6V3_FEE, F6V3_MAX_BARS } from '@/lib/paper-f6v3-store';
+import { F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_TICKS_FILE, F6V5_INITIAL_CASH_KRW, F6V5_FEE, F6V5_MAX_BARS } from '@/lib/paper-f6v5-store';
+import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_INITIAL_CASH_KRW, F6V6_FEE, F6V6_MAX_BARS } from '@/lib/paper-f6v6-store';
+import { f6StateAsOf } from '@/lib/paper-asof';
 import {
   computeStrategyMetrics, computePortfolio, PASS_LABEL,
   type ClosedTradeLite,
@@ -223,7 +232,15 @@ function judgeMain(
 (async () => {
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
 
-  const today = kstDate();
+  const asofArg = (() => {
+    const i = process.argv.indexOf('--asof');
+    if (i < 0) return null;
+    const d = process.argv[i + 1];
+    if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error('--asof 뒤에 YYYY-MM-DD 가 필요함');
+    return d;
+  })();
+  const today = asofArg ?? kstDate();
+  const cutoffTs = asofArg ? Date.parse(`${asofArg}T23:59:59+09:00`) : Date.now();
   const reportPath = path.join(REPORTS_DIR, `weekly-${today}.md`);
 
   const state = loadState();
@@ -233,16 +250,65 @@ function judgeMain(
   }
   const thresholds = loadThresholds();
 
-  const positions = readJsonl<ClosedPosition>(POSITIONS_FILE);
-  const signals = readJsonl<SignalRecord>(SIGNALS_FILE);
-  const forwards = readJsonl<ForwardReturnRecord>(FORWARD_RETURNS_FILE);
-  const snapshots = readJsonl<DailySnapshot>(SNAPSHOTS_FILE);
+  const upto = <T>(rows: T[], date: (r: T) => string | undefined) =>
+    asofArg ? rows.filter((r) => (date(r) ?? '9999') <= asofArg) : rows;
+
+  const positions = upto(readJsonl<ClosedPosition>(POSITIONS_FILE), (p) => p.exitDate);
+  const signals = upto(readJsonl<SignalRecord>(SIGNALS_FILE), (s) => s.signalDate);
+  const snapshots = upto(readJsonl<DailySnapshot>(SNAPSHOTS_FILE), (s) => s.date);
+
+  // forward return 은 신호 며칠 뒤에 채워지므로 signalDate 만으로 자르면 미래 정보가 섞인다.
+  // as-of 모드에선 관측 구간(신호시각 + 지평)이 cutoff 를 넘는 값은 null 로 지운다.
+  const clipForward = (f: ForwardReturnRecord): ForwardReturnRecord => {
+    if (!asofArg) return f;
+    const t0 = Date.parse(f.signalTime);
+    const known = <T>(v: T, horizonMs: number): T | null => (t0 + horizonMs <= cutoffTs ? v : null);
+    const exitKnown = Date.parse(f.lastUpdated) <= cutoffTs;
+    return {
+      ...f,
+      return_1h: known(f.return_1h, 3600_000),
+      return_4h: known(f.return_4h, 4 * 3600_000),
+      return_1d: known(f.return_1d, 86400_000),
+      return_3d: known(f.return_3d, 3 * 86400_000),
+      return_5d: known(f.return_5d, 5 * 86400_000),
+      return_until_exit_rule: exitKnown ? f.return_until_exit_rule : null,
+      exitRuleTriggered: exitKnown ? f.exitRuleTriggered : null,
+    };
+  };
+  const forwards = upto(readJsonl<ForwardReturnRecord>(FORWARD_RETURNS_FILE), (f) => f.signalDate).map(clipForward);
+
+  /**
+   * F1F2 의 기준 시점 현금/보유 평가액.
+   *   - 라이브: 기존과 동일하게 state + entryPrice(buyAmount) 기준 (보수적)
+   *   - as-of: 그 날 daily-snapshot 의 strategy_metrics (cash / equity−cash = 그 날 종가 평가)
+   *            스냅샷이 없으면 started=false — 그 시점 상태를 알 수 없으므로 리포트에서 제외
+   */
+  const asofSnap = asofArg ? snapshots[snapshots.length - 1] : null;
+  const f1f2AsOf = (sn: StrategyName): { started: boolean; cash: number; positionValue: number; marked: boolean } => {
+    if (!asofArg) {
+      const pos = state.strategies[sn].position;
+      return { started: true, cash: state.strategies[sn].cash, positionValue: pos ? pos.buyAmount : 0, marked: false };
+    }
+    const m = asofSnap?.strategy_metrics?.[sn];
+    if (!m) return { started: false, cash: 0, positionValue: 0, marked: true };
+    return { started: true, cash: m.cash, positionValue: Math.max(0, m.equity - m.cash), marked: true };
+  };
+  /** as-of 모드에서 그 시점 열려 있던 F1F2 포지션 (청산기록 or 현재 보유에서 찾음) */
+  const f1f2OpenAsOf = (sn: StrategyName) => {
+    if (!asofArg) return state.strategies[sn].position;
+    const held = readJsonl<ClosedPosition>(POSITIONS_FILE)
+      .find((p) => p.strategy === sn && p.entryDate <= asofArg && p.exitDate > asofArg);
+    if (held) return { signal: held.signal, entryDate: held.entryDate, entryPrice: held.entryPrice, vol: 0, buyAmount: 0, daysHeld: 0 } as any;
+    const cur = state.strategies[sn].position;
+    return cur && cur.entryDate <= asofArg ? cur : null;
+  };
 
   const L: string[] = [];
   L.push(`# Paper Trading Weekly Report — ${today}`);
   L.push('');
   L.push(`- 시작: ${state.startedAt}`);
-  L.push(`- 마지막 tick: ${state.lastTickDate ?? 'N/A'}`);
+  L.push(`- 마지막 tick: ${asofArg ?? state.lastTickDate ?? 'N/A'}`);
+  if (asofArg) L.push(`- ⚠️ 소급 재구성 리포트 (${asofArg} 기준, ${kstDate()} 생성) — forward return 은 그날까지 관측 가능한 값만 사용`);
   L.push(`- 자본 비율: F1F2_50=${STRATEGY_SIZE_FRACTION.FUNDING_F1F2_50 * 100}%  F1F2_100=${STRATEGY_SIZE_FRACTION.FUNDING_F1F2_100 * 100}%`);
   L.push(`- Train thresholds (frozen ${thresholds.computedAt.slice(0, 10)}):`);
   L.push(`  - p10_1d=${thresholds.p10_1d.toFixed(4)}  p90_1d=${thresholds.p90_1d.toFixed(4)}`);
@@ -269,7 +335,8 @@ function judgeMain(
     const trades = positions.filter((p) => p.strategy === sn);
     const s = statsFor(trades, state.startedAt);
     allStats[sn] = s;
-    const st = state.strategies[sn];
+    const stAsOf = f1f2AsOf(sn);
+    const posAsOf = f1f2OpenAsOf(sn);
     const lastSignal = signals.filter((sig) => sig.strategyName === sn).slice(-1)[0];
 
     L.push(`### ${sn} ${sn === 'FUNDING_F1F2_50' ? '(MAIN 판정용)' : '(BENCHMARK)'}`);
@@ -292,10 +359,10 @@ function judgeMain(
     L.push(`| Max Drawdown | ${s.mdd.toFixed(1)}% |`);
     L.push(`| Max Losing Streak | ${s.maxLosingStreak} |`);
     L.push(`| Top3 Removed Return | ${fmtPct(s.top3RemovedReturn)} |`);
-    L.push(`| Current Cash | ${fmtKrw(st.cash)} KRW |`);
-    L.push(`| Current Position | ${st.position ? `${st.position.signal} entry=${st.position.entryDate}@${st.position.entryPrice.toFixed(0)} d${st.position.daysHeld}` : 'none'} |`);
+    L.push(`| Current Cash | ${stAsOf.started ? `${fmtKrw(stAsOf.cash)} KRW` : '해당 시점 기록 없음'} |`);
+    L.push(`| Current Position | ${posAsOf ? `${posAsOf.signal} entry=${posAsOf.entryDate}@${posAsOf.entryPrice.toFixed(0)}` : 'none'} |`);
     L.push(`| Last Signal | ${lastSignal ? `${lastSignal.signalLabel} on ${lastSignal.signalDate} (executed=${lastSignal.entryExecuted})` : 'none yet'} |`);
-    L.push(`| Next Expected Action | ${st.position ? `청산 조건 모니터` : '신호 대기'} |`);
+    L.push(`| Next Expected Action | ${posAsOf ? `청산 조건 모니터` : '신호 대기'} |`);
     L.push('');
   }
 
@@ -364,29 +431,51 @@ function judgeMain(
 
   // ─── 전 전략 + 합성 포트폴리오 통과기준 현황 ───
   // (open 포지션은 entryPrice 기준 = 보수적. 실현 지표 PF/WR/MDD는 trades 기반 정확)
-  const tradesFromFile = (p: string): ClosedTradeLite[] =>
-    readJsonl<any>(p).map((t) => ({ profitKrw: t.profitKrw, exitTs: t.exitTs }));
-
-  const f1f2Trades: ClosedTradeLite[] = readJsonl<any>(POSITIONS_FILE)
-    .filter((t) => t.strategy === 'FUNDING_F1F2_50')
+  const f1f2TradesOf = (sn: StrategyName): ClosedTradeLite[] => positions
+    .filter((t) => t.strategy === sn)
     .map((t) => ({ profitKrw: t.profitKrw, exitTs: Date.parse(t.exitDate) }));
-  const f6St = JSON.parse(fs.existsSync(F6_STATE_FILE) ? fs.readFileSync(F6_STATE_FILE, 'utf-8') : '{}');
-  const f6v2St = JSON.parse(fs.existsSync(F6V2_STATE_FILE) ? fs.readFileSync(F6V2_STATE_FILE, 'utf-8') : '{}');
-  const f6v3St = JSON.parse(fs.existsSync(F6V3_STATE_FILE) ? fs.readFileSync(F6V3_STATE_FILE, 'utf-8') : '{}');
+  const f1f2Trades = f1f2TradesOf('FUNDING_F1F2_50');
+  const f1f2Trades100 = f1f2TradesOf('FUNDING_F1F2_100');
+  const f6AsOf = (stateFile: string, ticksFile: string, tradesFile: string, fee: number, maxBars: number) =>
+    f6StateAsOf({ stateFile, ticksFile, tradesFile, fee, maxBars }, cutoffTs);
+  const f6A   = f6AsOf(F6_STATE_FILE,   F6_TICKS_FILE,   F6_TRADES_FILE,   F6_FEE,   F6_MAX_BARS);
+  const f6v2A = f6AsOf(F6V2_STATE_FILE, F6V2_TICKS_FILE, F6V2_TRADES_FILE, F6V2_FEE, F6V2_MAX_BARS);
+  const f6v3A = f6AsOf(F6V3_STATE_FILE, F6V3_TICKS_FILE, F6V3_TRADES_FILE, F6V3_FEE, F6V3_MAX_BARS);
+  const f6v5A = f6AsOf(F6V5_STATE_FILE, F6V5_TICKS_FILE, F6V5_TRADES_FILE, F6V5_FEE, F6V5_MAX_BARS);
+  const f6v6A = f6AsOf(F6V6_STATE_FILE, F6V6_TICKS_FILE, F6V6_TRADES_FILE, F6V6_FEE, F6V6_MAX_BARS);
+  const f6Trades = (a: typeof f6A): ClosedTradeLite[] => a.closedTrades.map((t) => ({ profitKrw: t.profitKrw, exitTs: t.exitTs }));
+
+  /** F1F2: as-of 평가액은 스냅샷의 equity−cash 로 (entryPrice 기준 평가와 동일 효과) */
+  const f1f2Row = (sn: StrategyName, trades: ClosedTradeLite[]) => {
+    const { started, cash, positionValue } = f1f2AsOf(sn);
+    return {
+      id: sn === 'FUNDING_F1F2_50' ? 'F1F2_50' : 'F1F2_100',
+      started,
+      initial: INITIAL_CASH_KRW,
+      cash,
+      positions: positionValue > 0 ? [{ cashUsed: positionValue, vol: 1, entryPrice: positionValue }] : [],
+      trades,
+    };
+  };
 
   const rows = [
-    { id: 'F1F2_50', initial: INITIAL_CASH_KRW, cash: state.strategies.FUNDING_F1F2_50.cash, positions: state.strategies.FUNDING_F1F2_50.position ? [{ cashUsed: state.strategies.FUNDING_F1F2_50.position.buyAmount, vol: state.strategies.FUNDING_F1F2_50.position.vol, entryPrice: state.strategies.FUNDING_F1F2_50.position.entryPrice }] : [], trades: f1f2Trades },
-    { id: 'F6',     initial: F6_INITIAL_CASH_KRW,   cash: f6St.cash ?? F6_INITIAL_CASH_KRW,   positions: f6St.positions ?? [],   trades: tradesFromFile(F6_TRADES_FILE) },
-    { id: 'F6_v2',  initial: F6V2_INITIAL_CASH_KRW, cash: f6v2St.cash ?? F6V2_INITIAL_CASH_KRW, positions: f6v2St.positions ?? [], trades: tradesFromFile(F6V2_TRADES_FILE) },
-    { id: 'F6_v3',  initial: F6V3_INITIAL_CASH_KRW, cash: f6v3St.cash ?? F6V3_INITIAL_CASH_KRW, positions: f6v3St.positions ?? [], trades: tradesFromFile(F6V3_TRADES_FILE) },
+    f1f2Row('FUNDING_F1F2_50', f1f2Trades),
+    f1f2Row('FUNDING_F1F2_100', f1f2Trades100),
+    { id: 'F6',    started: !!f6A.anchor,   initial: F6_INITIAL_CASH_KRW,   cash: f6A.cash,   positions: f6A.positions,   trades: f6Trades(f6A) },
+    { id: 'F6_v2', started: !!f6v2A.anchor, initial: F6V2_INITIAL_CASH_KRW, cash: f6v2A.cash, positions: f6v2A.positions, trades: f6Trades(f6v2A) },
+    { id: 'F6_v3', started: !!f6v3A.anchor, initial: F6V3_INITIAL_CASH_KRW, cash: f6v3A.cash, positions: f6v3A.positions, trades: f6Trades(f6v3A) },
+    { id: 'F6_v5', started: !!f6v5A.anchor, initial: F6V5_INITIAL_CASH_KRW, cash: f6v5A.cash, positions: f6v5A.positions, trades: f6Trades(f6v5A) },
+    { id: 'F6_v6', started: !!f6v6A.anchor, initial: F6V6_INITIAL_CASH_KRW, cash: f6v6A.cash, positions: f6v6A.positions, trades: f6Trades(f6v6A) },
   ];
+  const skipped = rows.filter((r) => !r.started).map((r) => r.id);
+  const activeRows = rows.filter((r) => r.started);   // 그 시점에 tick/스냅샷이 없는 전략은 제외
 
   L.push(`## 전 전략 통과기준 현황 (PF≥1.2 & total>0)`);
   L.push('');
   L.push(`| 전략 | total | PF | WR | 실현MDD | 거래 | 판정 |`);
   L.push(`|------|-------|----|----|---------|------|------|`);
   const portfolioInputs: Array<{ initial: number; equity: number; trades: ClosedTradeLite[] }> = [];
-  for (const r of rows) {
+  for (const r of activeRows) {
     const m = computeStrategyMetrics({ initial: r.initial, cash: r.cash, positions: r.positions, trades: r.trades });
     portfolioInputs.push({ initial: r.initial, equity: m.equity, trades: r.trades });
     L.push(`| ${r.id} | ${fmtPct(m.totalReturn)} | ${m.pf.toFixed(2)} | ${m.wr.toFixed(0)}% | ${m.realizedMdd.toFixed(1)}% | ${m.trades} | ${PASS_LABEL[m.passStatus]} |`);
@@ -394,7 +483,9 @@ function judgeMain(
   const pf = computePortfolio(portfolioInputs);
   L.push('');
   L.push(`**합성 포트폴리오**: total ${fmtPct(pf.totalReturn)} · 실현MDD ${pf.realizedMdd.toFixed(1)}% · 누적 ${pf.trades}건`);
-  L.push(`> F1F2↔F6 무상관(백테스트 0.08~0.16) → 합성 MDD가 개별 합보다 낮은 게 정상. open 포지션은 entryPrice 기준(보수적).`);
+  L.push(`> F1F2↔F6 무상관(백테스트 0.08~0.16) → 합성 MDD가 개별 합보다 낮은 게 정상.`);
+  L.push(`> open 포지션 평가: ${asofArg ? 'F1F2 는 해당일 스냅샷 종가 평가, F6 계열은 entryPrice 기준' : 'entryPrice 기준(보수적)'}.`);
+  if (skipped.length) L.push(`> ⚠️ ${skipped.join(', ')} — 해당 시점 기록(tick/스냅샷) 없어 표·합성에서 제외.`);
   L.push('');
 
   L.push(`---`);

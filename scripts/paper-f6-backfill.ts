@@ -3,7 +3,7 @@
  * F6 / F6_v2 backfill — 마지막 tick 이후 ~ 현재까지 자동 cron이 돌았던 것처럼 시뮬.
  *
  * 흐름:
- *   1. 28코인 4h candle (최근 ~50 bars) fetch
+ *   1. 28코인 4h candle (400 bars ≈ 66일, 요청당 200봉 상한이라 페이지네이션) fetch
  *   2. 마지막 tick 이후 매 4h boundary (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 KST) iteration
  *   3. 각 시점:
  *      - 직전 confirmed 4h bar에서 신호 평가 (lookahead-safe)
@@ -35,16 +35,29 @@ import fs from 'fs';
 const FOUR_H_MS = 4 * 3600_000;
 function kstISO(ts: number): string { return new Date(ts + 9 * 3600_000).toISOString(); }
 
-async function fetchBars(market: string, count = 80): Promise<BarLite[]> {
+async function fetchBars(market: string, count = 400): Promise<BarLite[]> {
+  // Upbit 는 요청당 200봉이 상한 → 필요한 만큼 to 파라미터로 페이지네이션.
   const client = getUpbitClient();
-  const candles = await client.getCandlesMinutes(240, market, count);
-  const sorted = candles.slice().reverse();
-  return sorted.map(c => ({
-    ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
-    open: (c as any).opening_price, high: (c as any).high_price,
-    low: (c as any).low_price, close: (c as any).trade_price,
-    volume: (c as any).candle_acc_trade_volume,
-  }));
+  const acc: any[] = [];
+  let to: string | undefined = undefined;
+  while (acc.length < count) {
+    const page = await client.getCandlesMinutes(240, market, Math.min(200, count - acc.length), to);
+    if (!page.length) break;
+    acc.push(...page);
+    to = (page[page.length - 1] as any).candle_date_time_utc;
+    if (page.length < 200) break;
+    await new Promise(r => setTimeout(r, 120));
+  }
+  const seen = new Set<number>();
+  return acc
+    .map(c => ({
+      ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
+      open: (c as any).opening_price, high: (c as any).high_price,
+      low: (c as any).low_price, close: (c as any).trade_price,
+      volume: (c as any).candle_acc_trade_volume,
+    }))
+    .filter(b => (seen.has(b.ts) ? false : (seen.add(b.ts), true)))
+    .sort((a, b) => a.ts - b.ts);
 }
 
 interface VariantSpec {
@@ -194,12 +207,12 @@ async function backfillVariant(spec: VariantSpec, barsByMarket: Map<string, BarL
 (async () => {
   console.log('=== Paper F6 / F6_v2 backfill ===');
 
-  // Fetch 28 coins bars (80 bars = 13d, 충분)
+  // Fetch 28 coins bars (400 bars = 66d, 되감기 백필 lookback 42봉 여유 — 요청당 200봉 상한이라 2페이지)
   console.log('Fetching 28 coins 4h bars...');
   const barsByMarket = new Map<string, BarLite[]>();
   for (const market of F6_COINS) {
     try {
-      const bars = await fetchBars(market, 80);
+      const bars = await fetchBars(market, 400);
       barsByMarket.set(market, bars);
       process.stdout.write('.');
       await new Promise(r => setTimeout(r, 150));

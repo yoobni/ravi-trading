@@ -74,9 +74,13 @@ async function fetchBinanceSpot(): Promise<number | null> {
 
 (async () => {
   // PAPER_TICK_DATE 환경변수로 historical backfill 가능 (YYYY-MM-DD KST)
-  const now = process.env.PAPER_TICK_DATE
+  const isBackfill = !!process.env.PAPER_TICK_DATE;
+  const now = isBackfill
     ? new Date(`${process.env.PAPER_TICK_DATE}T02:00:00.000Z`) // KST 11:00에 해당
     : new Date();
+  // backfill 시엔 과거 evalDate/vol14 커버를 위해 lookback 확대 (live는 그대로).
+  const FUNDING_POINTS = isBackfill ? 300 : 40;
+  const DAILY_BARS = isBackfill ? 200 : 60;
   const today = kstDate(now);
   const yesterday = kstDate(new Date(now.getTime() - 86400_000));
 
@@ -88,7 +92,7 @@ async function fetchBinanceSpot(): Promise<number | null> {
   // 1. Funding fetch
   let dailyMap: ReturnType<typeof aggregateDaily>;
   try {
-    const pts = await fetchRecentFunding(40);
+    const pts = await fetchRecentFunding(FUNDING_POINTS);
     dailyMap = aggregateDaily(pts);
     console.log(`[fetch] funding ${pts.length} pts / ${dailyMap.size} KST days`);
   } catch (e: any) {
@@ -97,7 +101,7 @@ async function fetchBinanceSpot(): Promise<number | null> {
   }
 
   // 2. BTC daily bars
-  const bars = await fetchDailyCached('KRW-BTC', 60, today);
+  const bars = await fetchDailyCached('KRW-BTC', DAILY_BARS, today);
   const barByDate = new Map(bars.map((b) => [b.date, b]));
   const todayBar = barByDate.get(today);
   const yesterdayBar = barByDate.get(yesterday);
