@@ -7,6 +7,7 @@ import type {
   UpbitCandle,
   UpbitDayCandle,
   UpbitOrderbook,
+  UpbitTradeTick,
   UpbitAccount,
   CandleMinuteUnit,
 } from '@/types/upbit';
@@ -380,6 +381,20 @@ export class UpbitClient {
       });
       return data;
     }, `getOrderbook(${markets.length}종목)`);
+  }
+
+  /**
+   * 최근 체결 내역 조회 (`/v1/trades/ticks`).
+   * 각 체결의 ask_bid 로 "누가 공격했는지"를 알 수 있다 — 캔들에는 없는 정보다.
+   * @param count 1~500. cursor 는 sequential_id 기준 페이지네이션.
+   */
+  async getTradesTicks(market: string, count = 200, cursor?: string): Promise<UpbitTradeTick[]> {
+    const params: Record<string, string | number> = { market, count };
+    if (cursor) params.cursor = cursor;
+    return this.requestWithRetry(async () => {
+      const { data } = await this.http.get<UpbitTradeTick[]>('/trades/ticks', { params });
+      return data;
+    }, `getTradesTicks(${market})`);
   }
 
   // ──────────────────────────────────────────────

@@ -99,3 +99,21 @@ export interface UpbitAccount {
 
 /** 분 캔들 단위 */
 export type CandleMinuteUnit = 1 | 3 | 5 | 15 | 10 | 30 | 60 | 240;
+
+/**
+ * 체결 내역 한 건 (`/v1/trades/ticks`).
+ * ask_bid 가 이 체결의 "공격한 쪽"을 말한다 — BID 면 시장가 매수가 호가를 때린 것.
+ * 봉 데이터(OHLCV)에는 이 방향 정보가 없어서, 매수 공격 비중은 캔들로 복원할 수 없다.
+ */
+export interface UpbitTradeTick {
+  market: string;
+  trade_date_utc: string;
+  trade_time_utc: string;
+  timestamp: number;
+  trade_price: number;
+  trade_volume: number;
+  prev_closing_price: number;
+  change_price: number;
+  ask_bid: 'ASK' | 'BID';
+  sequential_id: number;
+}
