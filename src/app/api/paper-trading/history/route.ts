@@ -24,6 +24,7 @@ import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_TICKS_FILE, F6V3_INITIAL_CASH_K
 import { F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_TICKS_FILE, F6V5_INITIAL_CASH_KRW } from '@/lib/paper-f6v5-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_INITIAL_CASH_KRW } from '@/lib/paper-f6v6-store';
 import { F6V7_STATE_FILE, F6V7_TRADES_FILE, F6V7_TICKS_FILE, F6V7_INITIAL_CASH_KRW } from '@/lib/paper-f6v7-store';
+import { F6V8_STATE_FILE, F6V8_TRADES_FILE, F6V8_TICKS_FILE, F6V8_INITIAL_CASH_KRW } from '@/lib/paper-f6v8-store';
 import { strategyDescription } from '@/lib/paper-strategy-meta';
 
 const HOUR = 3600_000;
@@ -237,6 +238,7 @@ export async function GET() {
     { id: 'F6_v5', name: 'F6_v5 NEW_HIGH 42 (TRAIL A2·안정)', trades: F6V5_TRADES_FILE, ticks: F6V5_TICKS_FILE, state: F6V5_STATE_FILE, initial: F6V5_INITIAL_CASH_KRW, stepMs: 4 * HOUR },
     { id: 'F6_v6', name: 'F6_v6 NEW_HIGH (TRAIL 12h·A2)', trades: F6V6_TRADES_FILE, ticks: F6V6_TICKS_FILE, state: F6V6_STATE_FILE, initial: F6V6_INITIAL_CASH_KRW, stepMs: 12 * HOUR },
     { id: 'F6_v7', name: 'F6_v7', trades: F6V7_TRADES_FILE, ticks: F6V7_TICKS_FILE, state: F6V7_STATE_FILE, initial: F6V7_INITIAL_CASH_KRW, stepMs: 4 * HOUR },
+    { id: 'F6_v8', name: 'F6_v8', trades: F6V8_TRADES_FILE, ticks: F6V8_TICKS_FILE, state: F6V8_STATE_FILE, initial: F6V8_INITIAL_CASH_KRW, stepMs: 4 * HOUR },
   ];
   for (const d of f6Defs) {
     out.push(f6Family(d.id, d.name, d.trades, d.ticks, d.initial, d.stepMs, started(d.state), now));

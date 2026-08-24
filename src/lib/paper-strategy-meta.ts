@@ -24,6 +24,8 @@ export const STRATEGY_DESCRIPTIONS: Record<string, string> = {
     'F6_v5와 같은 규칙을 12시간봉에 적용 · 신호는 적게 잡히지만 한 번 잡으면 더 오래 들고감',
   F6_v7:
     'F6_v5와 같은 신호·청산에 자금만 집중(50%×2종) · 유일하게 크론이 봉 마감에 정렬돼 있어 백테스트와 실행 시각이 일치',
+  F6_v8:
+    'F6_v5와 전부 같고 한 가지만 다름 — 이미 들고 있는 코인이 다시 신호를 내면 한 번 더 산다(코인당 최대 2트란치) · v5가 대조군',
 };
 
 export function strategyDescription(id: string): string {
