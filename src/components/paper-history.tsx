@@ -31,6 +31,7 @@ interface HistoryTrade {
 interface HistoryStrategy {
   id: string;
   name: string;
+  description: string;
   initial: number;
   stepMs: number;
   slotsPerDay: number;
@@ -323,8 +324,10 @@ export default function PaperHistory() {
 
   return (
     <section>
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h2 className="text-sm font-bold text-zinc-900">과거 기록</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+        <h2 className="text-sm font-bold text-zinc-900">
+          과거 기록 <span className="font-mono text-zinc-500">· {s.id}</span>
+        </h2>
         <div className="flex flex-wrap gap-1">
           {data.map((x) => (
             <button
@@ -345,10 +348,12 @@ export default function PaperHistory() {
         </div>
       </div>
 
+      <p className="text-[11px] text-zinc-600 mb-3">{s.description}</p>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div className="bg-white border border-zinc-200 rounded-xl p-4">
           <div className="flex items-baseline justify-between mb-2">
-            <h3 className="text-[11px] font-semibold text-zinc-700">실현 자산 곡선 · {s.id}</h3>
+            <h3 className="text-[11px] font-semibold text-zinc-700">실현 자산 곡선</h3>
             <span className={`text-[11px] font-semibold tabular-nums ${realized >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               실현 {realized >= 0 ? '+' : ''}{fmtCompact(realized)}원 · {s.trades.length}건
             </span>
@@ -358,12 +363,12 @@ export default function PaperHistory() {
         </div>
 
         <div className="bg-white border border-zinc-200 rounded-xl p-4">
-          <h3 className="text-[11px] font-semibold text-zinc-700 mb-2">tick 커버리지 · {s.id}</h3>
+          <h3 className="text-[11px] font-semibold text-zinc-700 mb-2">tick 커버리지</h3>
           <CoverageGrid strategy={s} />
         </div>
 
         <div className="bg-white border border-zinc-200 rounded-xl p-4 lg:col-span-2">
-          <h3 className="text-[11px] font-semibold text-zinc-700 mb-2">거래 내역 · {s.id} ({s.trades.length}건)</h3>
+          <h3 className="text-[11px] font-semibold text-zinc-700 mb-2">거래 내역 ({s.trades.length}건)</h3>
           <TradeTable strategy={s} />
         </div>
       </div>

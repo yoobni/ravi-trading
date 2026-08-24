@@ -31,6 +31,7 @@ import {
 import {
   F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_INITIAL_CASH_KRW, F6V6_SL_PCT, F6V6_TRAIL_ACT, F6V6_TRAIL_GAP, F6V6_MAX_BARS,
 } from '@/lib/paper-f6v6-store';
+import { strategyDescription } from '@/lib/paper-strategy-meta';
 import {
   computeStrategyMetrics, computePortfolio,
   type StrategyMetrics, type ClosedTradeLite,
@@ -167,7 +168,7 @@ export async function GET() {
     strategies.push({
       id: 'F1F2_50',
       name: 'FUNDING_F1F2_50 (MAIN)',
-      description: 'Upbit BTC daily, funding contrarian. 자본 50%.',
+      description: strategyDescription('F1F2_50'),
       rule: `daily F1/F2 funding extreme → LONG @ open. TP+${F1F2_TP_PCT}%/SL${F1F2_SL_PCT}%/MAX ${F1F2_MAX_DAYS}d`,
       capitalAlloc: F1F2_INITIAL_CASH,
       cash: st.cash,
@@ -220,7 +221,7 @@ export async function GET() {
       id: 'F1F2_100',
       name: 'FUNDING_F1F2_100 (BENCHMARK)',
       benchmark: true,
-      description: 'F1F2_50 동일 신호, 자본 100% aggressive 비교용.',
+      description: strategyDescription('F1F2_100'),
       rule: `daily F1/F2 funding extreme → LONG @ open. TP+${F1F2_TP_PCT}%/SL${F1F2_SL_PCT}%/MAX ${F1F2_MAX_DAYS}d`,
       capitalAlloc: F1F2_INITIAL_CASH,
       cash: st100.cash,
@@ -262,7 +263,7 @@ export async function GET() {
     strategies.push({
       id: 'F6_v2',
       name: 'F6_v2 NEW_HIGH 42 (TP_OPT)',
-      description: 'F6 동일 신호, exit TP/SL 최적화 (R35/R36 검증).',
+      description: strategyDescription('F6_v2'),
       rule: `7d high break + 양봉 + vol z≥0.5 → TP+${F6V2_TP_PCT}%/SL${F6V2_SL_PCT}%/MAX ${F6V2_MAX_BARS/6}d`,
       capitalAlloc: F6V2_INITIAL_CASH_KRW,
       cash: f6v2State.cash,
@@ -307,7 +308,7 @@ export async function GET() {
     strategies.push({
       id: 'F6',
       name: 'F6 NEW_HIGH 42',
-      description: 'Upbit 4h, 28코인. 7d 신고가 + follow-through 모멘텀.',
+      description: strategyDescription('F6'),
       rule: `7d high break + 양봉 + vol z≥0.5 → TP+${F6_TP_PCT}%/SL${F6_SL_PCT}%/MAX ${F6_MAX_BARS/6}d`,
       capitalAlloc: F6_INITIAL_CASH_KRW,
       cash: f6State.cash,
@@ -352,7 +353,7 @@ export async function GET() {
     strategies.push({
       id: 'F6_v3',
       name: 'F6_v3 NEW_HIGH 42 (CONFIRM)',
-      description: 'F6 신호 + 거짓돌파 다음봉 확정. 큰 TP (R45 검증, 약세장 방어).',
+      description: strategyDescription('F6_v3'),
       rule: `7d high break + 확인봉 follow + vol z≥0.5 → TP+${F6V3_TP_PCT}%/SL${F6V3_SL_PCT}%/MAX ${F6V3_MAX_BARS/6}d, 25%×4`,
       capitalAlloc: F6V3_INITIAL_CASH_KRW,
       cash: f6v3State.cash,
@@ -397,7 +398,7 @@ export async function GET() {
     strategies.push({
       id: 'F6_v5',
       name: 'F6_v5 NEW_HIGH 42 (TRAIL A2·안정)',
-      description: 'F6 신호 + 트레일링(act2/gap2, 안정형). 4년 PF1.51·MDD84%·승률45%, OOS PF1.47.',
+      description: strategyDescription('F6_v5'),
       rule: `7d high break + 양봉 + vol z≥0.5 → SL${F6V5_SL_PCT}%, +${F6V5_TRAIL_ACT}% 후 고점−${F6V5_TRAIL_GAP}% 트레일 / MAX ${F6V5_MAX_BARS/6}d, 33%×3`,
       capitalAlloc: F6V5_INITIAL_CASH_KRW,
       cash: f6v5State.cash,
@@ -442,7 +443,7 @@ export async function GET() {
     strategies.push({
       id: 'F6_v6',
       name: 'F6_v6 NEW_HIGH (TRAIL 12h·A2)',
-      description: 'F6_v5(A2)를 12h봉에 적용. 4년 PF1.93·총익+1317%(4h대비↑) 대신 MDD↑. 4h와 병행 실측.',
+      description: strategyDescription('F6_v6'),
       rule: `[12h봉] 7d high break + 양봉 + vol z≥0.5 → SL${F6V6_SL_PCT}%, +${F6V6_TRAIL_ACT}% 후 고점−${F6V6_TRAIL_GAP}% 트레일 / MAX ${F6V6_MAX_BARS/2}d, 33%×3`,
       capitalAlloc: F6V6_INITIAL_CASH_KRW,
       cash: f6v6State.cash,

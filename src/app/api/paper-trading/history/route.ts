@@ -23,6 +23,7 @@ import { F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_TICKS_FILE, F6V2_INITIAL_CASH_K
 import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_TICKS_FILE, F6V3_INITIAL_CASH_KRW } from '@/lib/paper-f6v3-store';
 import { F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_TICKS_FILE, F6V5_INITIAL_CASH_KRW } from '@/lib/paper-f6v5-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_INITIAL_CASH_KRW } from '@/lib/paper-f6v6-store';
+import { strategyDescription } from '@/lib/paper-strategy-meta';
 
 const HOUR = 3600_000;
 const DAY = 24 * HOUR;
@@ -46,6 +47,8 @@ export interface HistoryTrade {
 export interface HistoryStrategy {
   id: string;
   name: string;
+  /** 이 전략이 뭘 하는지 한 줄 설명 (paper-strategy-meta) */
+  description: string;
   initial: number;
   stepMs: number;
   /** 하루에 기대되는 tick 수 (coverage 그리드 열 개수) */
@@ -166,6 +169,7 @@ function f6Family(
   return {
     id,
     name,
+    description: strategyDescription(id),
     initial,
     stepMs,
     slotsPerDay: Math.round(DAY / stepMs),
@@ -210,6 +214,7 @@ export async function GET() {
     out.push({
       id,
       name,
+      description: strategyDescription(id),
       initial: F1F2_INITIAL_CASH,
       stepMs: DAY,
       slotsPerDay: 1,

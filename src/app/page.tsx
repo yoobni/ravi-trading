@@ -66,6 +66,84 @@ function fmtPct(n: number, withSign = true): string {
   return `${withSign ? sign : ''}${n.toFixed(2)}%`;
 }
 
+/** 전략 카드 — 운영 전략과 벤치마크가 같은 모양을 쓴다. */
+function StrategyCard({ s }: { s: PaperStrategy }) {
+  const profitPositive = s.returnRate >= 0;
+  return (
+    <div key={s.id} className="bg-white border border-zinc-200 rounded-xl p-4">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono font-bold text-zinc-900">{s.id}</span>
+            {s.benchmark && (
+              <span className="shrink-0 whitespace-nowrap px-1 py-px rounded bg-zinc-100 text-[9px] font-semibold text-zinc-500">합성 제외</span>
+            )}
+          </div>
+          <p className="text-[11px] text-zinc-600 mt-1">{s.description}</p>
+          <p className="text-[10px] font-mono text-zinc-400 mt-1">{s.rule}</p>
+        </div>
+        <div className={`text-lg font-bold tabular-nums shrink-0 ${profitPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+          {fmtPct(s.returnRate)}
+        </div>
+      </div>
+
+      {/* 통과 기준 현황 */}
+      <div className="flex items-center gap-2 mt-2 text-[10px]">
+        <span className={`px-1.5 py-0.5 rounded font-semibold ${PASS_BADGE[s.metrics.passStatus].cls}`}>
+          {PASS_BADGE[s.metrics.passStatus].label}
+        </span>
+        <span className="font-mono text-zinc-500 tabular-nums">
+          PF {s.metrics.pf.toFixed(2)} · WR {s.metrics.wr.toFixed(0)}% · MDD {fmtPct(s.metrics.realizedMdd, false)} · {s.metrics.trades}건
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs mt-3">
+        <div>
+          <p className="text-[9px] text-zinc-500 uppercase">자산</p>
+          <p className="font-mono font-semibold tabular-nums">{fmtKrw(s.totalEquity)}</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-500 uppercase">손익</p>
+          <p className={`font-mono font-semibold tabular-nums ${(s.totalEquity - s.capitalAlloc) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            {(s.totalEquity - s.capitalAlloc) >= 0 ? '+' : ''}{fmtKrw(s.totalEquity - s.capitalAlloc)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-500 uppercase">현금</p>
+          <p className="font-mono tabular-nums text-zinc-700">{fmtCompact(s.cash)}원</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-zinc-500 uppercase">실현 / 거래</p>
+          <p className="font-mono tabular-nums text-zinc-700">{(s.totalRealizedPnl >= 0 ? '+' : '')}{fmtCompact(s.totalRealizedPnl)}원 / {s.totalTrades}건</p>
+        </div>
+      </div>
+
+      {s.positions.length > 0 ? (
+        <div className="mt-3 pt-3 border-t border-zinc-100">
+          <p className="text-[9px] text-zinc-500 uppercase mb-1">보유 ({s.positions.length}종)</p>
+          <div className="space-y-1">
+            {s.positions.map((pos, i) => (
+              <div key={i} className="flex justify-between text-[11px]">
+                <span className="text-zinc-700">{pos.market.replace('KRW-', '')} <span className="text-zinc-400">·{pos.daysHeld}일</span></span>
+                <span className={`font-semibold tabular-nums ${pos.profitRate >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {fmtPct(pos.profitRate)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 pt-3 border-t border-zinc-100">
+          <p className="text-[10px] text-zinc-400">보유 없음 (cash)</p>
+          {s.lastTickAt && (
+            <p className="text-[9px] text-zinc-400 mt-0.5">마지막 tick: {new Date(s.lastTickAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [paperData, setPaperData] = useState<PaperApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +175,8 @@ export default function Dashboard() {
 
   const total = paperData.total;
   const totalProfit = total.totalEquity - total.capitalAlloc;
+  const operating = paperData.strategies.filter((s) => !s.benchmark);
+  const benchmarks = paperData.strategies.filter((s) => s.benchmark);
 
   return (
     <div className="min-h-screen bg-zinc-100">
@@ -147,87 +227,26 @@ export default function Dashboard() {
         </section>
 
         {/* Paper Strategies 카드 그리드 */}
-        {paperData.strategies.length > 0 && (
+        {operating.length > 0 && (
           <section>
-            <h2 className="text-sm font-bold text-zinc-900 mb-3">전략별 현황</h2>
+            <h2 className="text-sm font-bold text-zinc-900 mb-3">
+              전략별 현황 <span className="font-normal text-zinc-500">— 운영 {operating.length}전략 · 자본 {fmtKrw(total.capitalAlloc)}</span>
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {paperData.strategies.map((s) => {
-                const profitPositive = s.returnRate >= 0;
-                return (
-                  <div key={s.id} className="bg-white border border-zinc-200 rounded-xl p-4">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-mono font-semibold text-zinc-500">{s.id}</span>
-                          {s.benchmark && (
-                            <span className="shrink-0 whitespace-nowrap px-1 py-px rounded bg-zinc-100 text-[9px] font-semibold text-zinc-500">합성 제외</span>
-                          )}
-                          <span className="font-bold text-zinc-900 truncate">{s.name}</span>
-                        </div>
-                        <p className="text-[10px] text-zinc-500 mt-0.5 line-clamp-2">{s.description}</p>
-                        <p className="text-[10px] font-mono text-zinc-400 mt-0.5">{s.rule}</p>
-                      </div>
-                      <div className={`text-lg font-bold tabular-nums shrink-0 ${profitPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        {fmtPct(s.returnRate)}
-                      </div>
-                    </div>
+              {operating.map((s) => <StrategyCard key={s.id} s={s} />)}
+            </div>
+          </section>
+        )}
 
-                    {/* 통과 기준 현황 */}
-                    <div className="flex items-center gap-2 mt-2 text-[10px]">
-                      <span className={`px-1.5 py-0.5 rounded font-semibold ${PASS_BADGE[s.metrics.passStatus].cls}`}>
-                        {PASS_BADGE[s.metrics.passStatus].label}
-                      </span>
-                      <span className="font-mono text-zinc-500 tabular-nums">
-                        PF {s.metrics.pf.toFixed(2)} · WR {s.metrics.wr.toFixed(0)}% · MDD {fmtPct(s.metrics.realizedMdd, false)} · {s.metrics.trades}건
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs mt-3">
-                      <div>
-                        <p className="text-[9px] text-zinc-500 uppercase">자산</p>
-                        <p className="font-mono font-semibold tabular-nums">{fmtKrw(s.totalEquity)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-zinc-500 uppercase">손익</p>
-                        <p className={`font-mono font-semibold tabular-nums ${(s.totalEquity - s.capitalAlloc) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {(s.totalEquity - s.capitalAlloc) >= 0 ? '+' : ''}{fmtKrw(s.totalEquity - s.capitalAlloc)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-zinc-500 uppercase">현금</p>
-                        <p className="font-mono tabular-nums text-zinc-700">{fmtCompact(s.cash)}원</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-zinc-500 uppercase">실현 / 거래</p>
-                        <p className="font-mono tabular-nums text-zinc-700">{(s.totalRealizedPnl >= 0 ? '+' : '')}{fmtCompact(s.totalRealizedPnl)}원 / {s.totalTrades}건</p>
-                      </div>
-                    </div>
-
-                    {s.positions.length > 0 ? (
-                      <div className="mt-3 pt-3 border-t border-zinc-100">
-                        <p className="text-[9px] text-zinc-500 uppercase mb-1">보유 ({s.positions.length}종)</p>
-                        <div className="space-y-1">
-                          {s.positions.map((pos, i) => (
-                            <div key={i} className="flex justify-between text-[11px]">
-                              <span className="text-zinc-700">{pos.market.replace('KRW-', '')} <span className="text-zinc-400">·{pos.daysHeld}일</span></span>
-                              <span className={`font-semibold tabular-nums ${pos.profitRate >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {fmtPct(pos.profitRate)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="mt-3 pt-3 border-t border-zinc-100">
-                        <p className="text-[10px] text-zinc-400">보유 없음 (cash)</p>
-                        {s.lastTickAt && (
-                          <p className="text-[9px] text-zinc-400 mt-0.5">마지막 tick: {new Date(s.lastTickAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+        {/* 벤치마크 — 합계/합성 지표에서 제외되는 비교군 */}
+        {benchmarks.length > 0 && (
+          <section>
+            <h2 className="text-sm font-bold text-zinc-900">벤치마크 <span className="font-normal text-zinc-500">— 합계·합성 지표에서 제외</span></h2>
+            <p className="text-[10px] text-zinc-500 mb-3">
+              동일 신호를 다른 자본 비율로 태운 비교군이라 합계에 넣으면 같은 전략을 이중 계산하게 된다 (상관 ≈ 1).
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {benchmarks.map((s) => <StrategyCard key={s.id} s={s} />)}
             </div>
           </section>
         )}
