@@ -39,6 +39,7 @@ import { F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_TICKS_FILE, F6V2_INITIAL_CASH_K
 import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_TICKS_FILE, F6V3_INITIAL_CASH_KRW, F6V3_FEE, F6V3_MAX_BARS } from '@/lib/paper-f6v3-store';
 import { F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_TICKS_FILE, F6V5_INITIAL_CASH_KRW, F6V5_FEE, F6V5_MAX_BARS } from '@/lib/paper-f6v5-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_INITIAL_CASH_KRW, F6V6_FEE, F6V6_MAX_BARS } from '@/lib/paper-f6v6-store';
+import { F6V7_STATE_FILE, F6V7_TRADES_FILE, F6V7_TICKS_FILE, F6V7_INITIAL_CASH_KRW, F6V7_FEE, F6V7_MAX_BARS } from '@/lib/paper-f6v7-store';
 import { f6StateAsOf } from '@/lib/paper-asof';
 import {
   computeStrategyMetrics, computePortfolio, PASS_LABEL,
@@ -443,6 +444,7 @@ function judgeMain(
   const f6v3A = f6AsOf(F6V3_STATE_FILE, F6V3_TICKS_FILE, F6V3_TRADES_FILE, F6V3_FEE, F6V3_MAX_BARS);
   const f6v5A = f6AsOf(F6V5_STATE_FILE, F6V5_TICKS_FILE, F6V5_TRADES_FILE, F6V5_FEE, F6V5_MAX_BARS);
   const f6v6A = f6AsOf(F6V6_STATE_FILE, F6V6_TICKS_FILE, F6V6_TRADES_FILE, F6V6_FEE, F6V6_MAX_BARS);
+  const f6v7A = f6AsOf(F6V7_STATE_FILE, F6V7_TICKS_FILE, F6V7_TRADES_FILE, F6V7_FEE, F6V7_MAX_BARS);
   const f6Trades = (a: typeof f6A): ClosedTradeLite[] => a.closedTrades.map((t) => ({ profitKrw: t.profitKrw, exitTs: t.exitTs }));
 
   /** F1F2: as-of 평가액은 스냅샷의 equity−cash 로 (entryPrice 기준 평가와 동일 효과) */
@@ -468,6 +470,7 @@ function judgeMain(
     { id: 'F6_v3', benchmark: false, started: !!f6v3A.anchor, initial: F6V3_INITIAL_CASH_KRW, cash: f6v3A.cash, positions: f6v3A.positions, trades: f6Trades(f6v3A) },
     { id: 'F6_v5', benchmark: false, started: !!f6v5A.anchor, initial: F6V5_INITIAL_CASH_KRW, cash: f6v5A.cash, positions: f6v5A.positions, trades: f6Trades(f6v5A) },
     { id: 'F6_v6', benchmark: false, started: !!f6v6A.anchor, initial: F6V6_INITIAL_CASH_KRW, cash: f6v6A.cash, positions: f6v6A.positions, trades: f6Trades(f6v6A) },
+    { id: 'F6_v7', benchmark: false, started: !!f6v7A.anchor, initial: F6V7_INITIAL_CASH_KRW, cash: f6v7A.cash, positions: f6v7A.positions, trades: f6Trades(f6v7A) },
   ];
   const skipped = rows.filter((r) => !r.started).map((r) => r.id);
   const activeRows = rows.filter((r) => r.started);   // 그 시점에 tick/스냅샷이 없는 전략은 제외

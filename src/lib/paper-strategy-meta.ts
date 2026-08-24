@@ -22,6 +22,8 @@ export const STRATEGY_DESCRIPTIONS: Record<string, string> = {
     'F6와 같은 신호, 고정 익절 대신 트레일링 청산 · 오르는 동안 계속 들고 가다 고점에서 밀리면 정리',
   F6_v6:
     'F6_v5와 같은 규칙을 12시간봉에 적용 · 신호는 적게 잡히지만 한 번 잡으면 더 오래 들고감',
+  F6_v7:
+    'F6_v5와 같은 신호·청산에 자금만 집중(50%×2종) · 유일하게 크론이 봉 마감에 정렬돼 있어 백테스트와 실행 시각이 일치',
 };
 
 export function strategyDescription(id: string): string {
