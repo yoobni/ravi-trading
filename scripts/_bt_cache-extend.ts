@@ -60,6 +60,10 @@ async function extend(market: string, unit: number) {
   }
 
   const newBars: Bar[] = fetched.map((c: any) => ({
+      // ⚠ 시각 규약: 캔들 캐시의 ts 는 **KST 벽시계를 UTC 인 척** 담는다.
+      //   new Date(ts).toISOString() 이 곧 KST 표기가 되도록 한 것.
+      //   반면 페이퍼 틱(scripts/paper-f6*-tick.ts)의 ts 는 **진짜 UTC** 다.
+      //   두 값을 같은 계산에 섞으면 9시간이 어긋난다 — 실제로 한 번 당했다(2026-08-25).
     ts: new Date(c.candle_date_time_kst).getTime(),
     date: c.candle_date_time_kst.slice(0, 16),
     open: c.opening_price, high: c.high_price, low: c.low_price, close: c.trade_price,

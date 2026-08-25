@@ -51,7 +51,10 @@ async function fetchBars(market: string, count = 400): Promise<BarLite[]> {
   const seen = new Set<number>();
   return acc
     .map(c => ({
-      ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
+      // ⚠ 시각 규약: 여기 ts 는 **진짜 UTC** 다(candle_date_time_utc + 'Z').
+    //   data/candle-cache 의 ts 는 KST 벽시계를 UTC 인 척 담고 있어 9시간 어긋난다.
+    //   두 소스를 한 계산에 섞지 말 것. 표시는 kstISO() 를 쓴다.
+    ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
       open: (c as any).opening_price, high: (c as any).high_price,
       low: (c as any).low_price, close: (c as any).trade_price,
       volume: (c as any).candle_acc_trade_volume,
