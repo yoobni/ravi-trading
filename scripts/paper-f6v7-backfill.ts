@@ -1,7 +1,10 @@
 #!/usr/bin/env tsx
 /**
- * F6_v7 (TRAIL) backfill — 마지막 tick 이후 ~ 현재까지 cron이 돌았던 것처럼 시뮬.
- * F6 신호 + 트레일링 청산. 진입가는 신호봉 다음 4h bar open (lookahead-safe).
+ * F6_v7 (봉마감 정렬) backfill — 마지막 tick 이후 ~ 현재까지 cron이 돌았던 것처럼 시뮬.
+ *
+ * ⚠ 백필은 진입가로 신호봉 다음 4h bar open 을 쓴다. 이는 정렬된 크론(v7)의 라이브
+ *   동작과는 거의 같지만, 미정렬 전략(v5 등)의 라이브와는 3시간 차이가 난다.
+ *   즉 v5 와 v7 을 비교할 때 백필 구간이 섞이면 정렬 효과가 희석된다 — 라이브 구간만 비교할 것.
  */
 import 'dotenv/config';
 import { getUpbitClient } from '@/lib/upbit-client';

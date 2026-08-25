@@ -501,7 +501,7 @@ export async function GET() {
       id: 'F6_v7',
       name: 'F6_v7',
       description: strategyDescription('F6_v7'),
-      rule: `7d high break + 양봉 + vol z≥0.5 → SL${F6V7_SL_PCT}%, +${F6V7_TRAIL_ACT}% 후 고점−${F6V7_TRAIL_GAP}% 트레일 / MAX ${F6V7_MAX_BARS/6}d, ${F6V7_POSITION_PCT*100}%×${F6V7_MAX_CONCURRENT} · 봉마감 정렬`,
+      rule: `7d high break + 양봉 + vol z≥0.5 → SL${F6V7_SL_PCT}%, +${F6V7_TRAIL_ACT}% 후 고점−${F6V7_TRAIL_GAP}% 트레일 / MAX ${F6V7_MAX_BARS/6}d, ${F6V7_POSITION_PCT*100}%×${F6V7_MAX_CONCURRENT} · ★크론 봉마감 정렬(KST 01/05/09/13/17/21)`,
       capitalAlloc: F6V7_INITIAL_CASH_KRW,
       cash: f6v7State.cash,
       positionValue,

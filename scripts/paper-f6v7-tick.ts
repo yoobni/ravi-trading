@@ -1,10 +1,12 @@
 #!/usr/bin/env tsx
 /**
- * F6_v7 (TRAIL) paper trading tick.
+ * F6_v7 (봉마감 정렬) paper trading tick.
  *
- * Cron: 매 4h KST (0,4,8,12,16,20시) +5분 (F6=+1, v2=+2, v3=+3와 분리; v4 제거로 +5 사용).
+ * Cron: KST 01/05/09/13/17/21 +2분 — Upbit 4h 봉이 마감된 직후에 돈다.
+ *   다른 F6 계열은 KST 00/04/08/12/16/20 에 돌아서 3시간 전에 마감된 봉으로 판단하고
+ *   3시간 늦은 가격에 진입한다. v7은 그 지연을 제거한 대조군이다(v5가 기준선).
  *
- * F6 동일 신호(evaluateF6v5Signal)·사이징(33%×3). exit만 트레일링(evalTrailExit).
+ * 신호·청산·사이징은 v5와 완전히 동일 — 변수는 크론 시각 하나뿐이다.
  */
 import 'dotenv/config';
 import { getUpbitClient } from '@/lib/upbit-client';
