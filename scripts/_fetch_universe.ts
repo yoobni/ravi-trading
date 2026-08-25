@@ -8,7 +8,7 @@
  * ⚠ 생존 편향: 상장폐지된 코인은 업비트 API 에서 사라지므로 과거 검증에 포함할 수 없다.
  *    즉 이 유니버스로 낸 성과는 낙관 쪽으로 치우친다 — 결론 낼 때 반드시 감안할 것.
  *
- * 실행: npx tsx scripts/_fetch_universe.ts [N]   (기본 120)
+ * 실행: npx tsx scripts/_fetch_universe.ts [N] [unit]   (기본 120, 240m)
  */
 import 'dotenv/config';
 import { getUpbitClient } from '@/lib/upbit-client';
@@ -17,6 +17,7 @@ import { fetchMinutesCached } from '../algorithms/archive/_candle-cache';
 /** 모멘텀이 존재하지 않는 종목 — 스테이블코인·금 연동 */
 const PEGGED = ['USDT','USDC','USDS','USDE','USDG','USD1','RLUSD','XAUT'];
 const N = Number(process.argv[2]) || 120;
+const UNIT = Number(process.argv[3]) || 240;
 const PERIODS = [{ from: '2024-08-01', to: '2025-08-01' }, { from: '2025-08-01', to: '2026-08-24' }];
 
 (async () => {
@@ -35,7 +36,7 @@ const PERIODS = [{ from: '2024-08-01', to: '2025-08-01' }, { from: '2025-08-01',
     .sort((a: any, b: any) => b.acc_trade_price_24h - a.acc_trade_price_24h)
     .slice(0, N);
 
-  console.log(`KRW 마켓 ${codes.length}개 → 거래대금 상위 ${ranked.length}개 수집 (스테이블 ${PEGGED.length}종 제외)`);
+  console.log(`KRW 마켓 ${codes.length}개 → 거래대금 상위 ${ranked.length}개 ${UNIT}m 수집 (스테이블 ${PEGGED.length}종 제외)`);
   console.log(`상위 10: ${ranked.slice(0, 10).map((t: any) => t.market.replace('KRW-', '')).join(' ')}\n`);
 
   let done = 0, failed: string[] = [];
@@ -43,7 +44,7 @@ const PERIODS = [{ from: '2024-08-01', to: '2025-08-01' }, { from: '2025-08-01',
     const m = t.market;
     let total = 0;
     for (const p of PERIODS) {
-      try { total += (await fetchMinutesCached(m, 240, p.from, p.to)).length; }
+      try { total += (await fetchMinutesCached(m, UNIT, p.from, p.to)).length; }
       catch (e: any) { console.log(`  [${m}] ${p.from} FAIL ${e?.message || e}`); }
     }
     done++;
