@@ -63,10 +63,12 @@ async function fetchBars(market: string, count = 400): Promise<BarLite[]> {
   const now = Date.now();
   const startTs = state.lastTickTs || (now - 7 * 86400_000);
   console.log(`\n[F6_v7] backfill from ${kstISO(startTs)} → ${kstISO(now)}`);
-  const startKst = startTs + 9 * 3600_000;
-  const nextBoundaryHour = Math.ceil((new Date(startKst).getUTCHours() + 1) / 4) * 4;
-  const cursorKst = new Date(startKst); cursorKst.setUTCHours(nextBoundaryHour, 1, 0, 0);
-  let cursor = cursorKst.getTime() - 9 * 3600_000;
+  // v7 은 "봉마감 정렬" 전략 — tick 격자도 라이브 크론과 같은 봉마감(UTC 00/04/08/12/16/20)
+  // +2분 위에 놓는다. (F6 계열 backfill 은 미정렬 크론 격자를 쓰지만, v7 은 그 정렬 자체가
+  // 검증 대상이라 격자가 어긋나면 tick 커버리지 격자에서 결손으로 잘못 보인다.)
+  // 4h 는 epoch(UTC 자정 기준)를 정확히 나누므로 floor 만으로 봉마감 경계가 나온다.
+  let cursor = Math.floor(startTs / FOUR_H_MS) * FOUR_H_MS + 2 * 60_000;
+  while (cursor <= startTs) cursor += FOUR_H_MS;
   const tickPoints: number[] = [];
   while (cursor < now) { tickPoints.push(cursor); cursor += FOUR_H_MS; }
   console.log(`  → ${tickPoints.length} ticks to backfill`);

@@ -20,7 +20,11 @@ import {
 
 function kstISO(ts: number): string { return new Date(ts + 9 * 3600_000).toISOString(); }
 
-async function fetchBars(market: string, count = 60): Promise<BarLite[]> {
+// 봉 개수: 신호 lookback 42 + 시간청산 MAX_BARS 84 = 126봉이 필요하다.
+// 60봉만 받으면 confirmedBars 가 84에 닿지 못해 14일 시간청산(TIME)이 라이브에서
+// 절대 발동하지 않는다 (2026-09-18 발견: v3 KRW-BTC 가 25일 보유 후 SL 로 청산됨).
+// Upbit 요청당 상한이 200봉이라 200으로 맞춘다 — 요청 수는 그대로.
+async function fetchBars(market: string, count = 200): Promise<BarLite[]> {
   const client = getUpbitClient();
   const candles = await client.getCandlesMinutes(240, market, count);
   const sorted = candles.slice().reverse();
@@ -46,7 +50,7 @@ interface PendingSignal { market: string; ts: number; volZ: number; }
   const barsByMarket = new Map<string, BarLite[]>();
   for (const market of F6V3_COINS) {
     try {
-      const bars = await fetchBars(market, 60);
+      const bars = await fetchBars(market, 200);
       barsByMarket.set(market, bars);
       process.stdout.write('.');
       await new Promise(r => setTimeout(r, 150));
