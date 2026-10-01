@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * F6 / F6_v2 backfill — 마지막 tick 이후 ~ 현재까지 자동 cron이 돌았던 것처럼 시뮬.
+ * F6 backfill (F6_v2 는 2026-10-01 은퇴 — 예전엔 두 전략을 함께 처리했다) — 마지막 tick 이후 ~ 현재까지 자동 cron이 돌았던 것처럼 시뮬.
  *
  * 흐름:
  *   1. 28코인 4h candle (400 bars ≈ 66일, 요청당 200봉 상한이라 페이지네이션) fetch
@@ -11,7 +11,7 @@
  *      - 신호 있으면 다음 4h bar open 진입
  *   4. state + trades + ticks 업데이트
  *
- * V1 = F6, V2 = F6_v2. 둘 다 처리.
+ * F6 만 처리한다.
  */
 import 'dotenv/config';
 import { getUpbitClient } from '@/lib/upbit-client';
@@ -23,13 +23,6 @@ import {
   readF6State,
   type F6Position, type F6ClosedTrade,
 } from '@/lib/paper-f6-store';
-import {
-  F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_TICKS_FILE,
-  F6V2_FEE, F6V2_SLIPPAGE, F6V2_TP_PCT, F6V2_SL_PCT, F6V2_MAX_BARS,
-  F6V2_POSITION_PCT, F6V2_MAX_CONCURRENT, F6V2_LOOKBACK_BARS,
-  readF6V2State,
-  type F6V2Position, type F6V2ClosedTrade,
-} from '@/lib/paper-f6v2-store';
 import fs from 'fs';
 
 const FOUR_H_MS = 4 * 3600_000;
@@ -207,7 +200,7 @@ async function backfillVariant(spec: VariantSpec, barsByMarket: Map<string, BarL
 }
 
 (async () => {
-  console.log('=== Paper F6 / F6_v2 backfill ===');
+  console.log('=== Paper F6 backfill ===');
 
   // Fetch 28 coins bars (400 bars = 66d, 되감기 백필 lookback 42봉 여유 — 요청당 200봉 상한이라 2페이지)
   console.log('Fetching 28 coins 4h bars...');
@@ -234,19 +227,6 @@ async function backfillVariant(spec: VariantSpec, barsByMarket: Map<string, BarL
       TP_PCT: F6_TP_PCT, SL_PCT: F6_SL_PCT, MAX_BARS: F6_MAX_BARS,
       POSITION_PCT: F6_POSITION_PCT, MAX_CONCURRENT: F6_MAX_CONCURRENT,
       FEE: F6_FEE, SLIPPAGE: F6_SLIPPAGE, LOOKBACK: F6_LOOKBACK_BARS,
-    }, barsByMarket);
-  }
-
-  // V2 = F6_v2
-  const f6v2State = readF6V2State();
-  if (f6v2State) {
-    await backfillVariant({
-      name: 'F6_v2',
-      state: f6v2State,
-      stateFile: F6V2_STATE_FILE, tradesFile: F6V2_TRADES_FILE, ticksFile: F6V2_TICKS_FILE,
-      TP_PCT: F6V2_TP_PCT, SL_PCT: F6V2_SL_PCT, MAX_BARS: F6V2_MAX_BARS,
-      POSITION_PCT: F6V2_POSITION_PCT, MAX_CONCURRENT: F6V2_MAX_CONCURRENT,
-      FEE: F6V2_FEE, SLIPPAGE: F6V2_SLIPPAGE, LOOKBACK: F6V2_LOOKBACK_BARS,
     }, barsByMarket);
   }
 

@@ -1,7 +1,8 @@
 /**
  * GET /api/paper-trading
  *
- * F1F2_50 (MAIN) + F6 NEW_HIGH 42 paper portfolio 통합 조회.
+ * F1F2 + F6 · F6_v6 + F7 계열 paper portfolio 통합 조회.
+ * (2026-10-01 함대 개편: F6_v2·v3·v5·v7·v8 은퇴 → data/_archive/20261001/)
  * 각 strategy: cash, positions (current price → unrealized PnL), totalTrades, equity, returnRate.
  */
 import { NextResponse } from 'next/server';
@@ -20,25 +21,9 @@ import {
   F6_STATE_FILE, F6_TRADES_FILE, F6_INITIAL_CASH_KRW, F6_TP_PCT, F6_SL_PCT, F6_MAX_BARS,
 } from '@/lib/paper-f6-store';
 import {
-  F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_INITIAL_CASH_KRW, F6V2_TP_PCT, F6V2_SL_PCT, F6V2_MAX_BARS,
-} from '@/lib/paper-f6v2-store';
-import {
-  F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_INITIAL_CASH_KRW, F6V3_TP_PCT, F6V3_SL_PCT, F6V3_MAX_BARS,
-} from '@/lib/paper-f6v3-store';
-import {
-  F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_INITIAL_CASH_KRW, F6V5_SL_PCT, F6V5_TRAIL_ACT, F6V5_TRAIL_GAP, F6V5_MAX_BARS,
-} from '@/lib/paper-f6v5-store';
-import {
   F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_INITIAL_CASH_KRW, F6V6_SL_PCT, F6V6_TRAIL_ACT, F6V6_TRAIL_GAP, F6V6_MAX_BARS,
 } from '@/lib/paper-f6v6-store';
-import {
-  F6V7_STATE_FILE, F6V7_TRADES_FILE, F6V7_INITIAL_CASH_KRW, F6V7_SL_PCT, F6V7_TRAIL_ACT, F6V7_TRAIL_GAP, F6V7_MAX_BARS,
-  F6V7_POSITION_PCT, F6V7_MAX_CONCURRENT,
-} from '@/lib/paper-f6v7-store';
-import {
-  F6V8_STATE_FILE, F6V8_TRADES_FILE, F6V8_INITIAL_CASH_KRW, F6V8_SL_PCT, F6V8_TRAIL_ACT, F6V8_TRAIL_GAP, F6V8_MAX_BARS,
-  F6V8_POSITION_PCT, F6V8_MAX_CONCURRENT, F6V8_MAX_PER_COIN,
-} from '@/lib/paper-f6v8-store';
+import { F7_VARIANTS, F7_INITIAL_CASH_KRW, F7_POSITION_PCT, F7_MAX_CONCURRENT, f7Files } from '@/lib/paper-f7-store';
 import { strategyDescription } from '@/lib/paper-strategy-meta';
 import {
   computeStrategyMetrics, computePortfolio,
@@ -111,23 +96,15 @@ export async function GET() {
   // Load states
   const f1f2State = safeReadJson<any>(F1F2_STATE_FILE);
   const f6State = safeReadJson<any>(F6_STATE_FILE);
-  const f6v2State = safeReadJson<any>(F6V2_STATE_FILE);
-  const f6v3State = safeReadJson<any>(F6V3_STATE_FILE);
-  const f6v5State = safeReadJson<any>(F6V5_STATE_FILE);
   const f6v6State = safeReadJson<any>(F6V6_STATE_FILE);
-  const f6v7State = safeReadJson<any>(F6V7_STATE_FILE);
-  const f6v8State = safeReadJson<any>(F6V8_STATE_FILE);
+  const f7States = F7_VARIANTS.map((v) => ({ v, state: safeReadJson<any>(f7Files(v).state) }));
 
   // Collect all markets to fetch ticker
   const markets = new Set<string>();
   if (f1f2State?.strategies?.FUNDING_F1F2_50?.position) markets.add('KRW-BTC');
   if (f6State?.positions) for (const p of f6State.positions) markets.add(p.market);
-  if (f6v2State?.positions) for (const p of f6v2State.positions) markets.add(p.market);
-  if (f6v3State?.positions) for (const p of f6v3State.positions) markets.add(p.market);
-  if (f6v5State?.positions) for (const p of f6v5State.positions) markets.add(p.market);
   if (f6v6State?.positions) for (const p of f6v6State.positions) markets.add(p.market);
-  if (f6v7State?.positions) for (const p of f6v7State.positions) markets.add(p.market);
-  if (f6v8State?.positions) for (const p of f6v8State.positions) markets.add(p.market);
+  for (const { state } of f7States) for (const p of state?.positions || []) markets.add(p.market);
 
   const priceByMarket = new Map<string, number>();
   if (markets.size > 0) {
@@ -248,51 +225,6 @@ export async function GET() {
     });
   }
 
-  // F6_v2 (TP_OPT) — F6_v1과 별도, 같은 signal 다른 exit
-  if (f6v2State) {
-    const positions = [];
-    let positionValue = 0;
-    for (const pos of (f6v2State.positions || [])) {
-      const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
-      const profitRate = (cur - pos.entryPrice) / pos.entryPrice * 100;
-      const profitKrw = pos.vol * cur - pos.cashUsed;
-      const v = pos.vol * cur;
-      positionValue += v;
-      positions.push({
-        market: pos.market,
-        entryDate: pos.entryDate,
-        entryPrice: pos.entryPrice,
-        currentPrice: cur,
-        vol: pos.vol,
-        profitRate,
-        profitKrw,
-        daysHeld: daysSince(pos.entryDate),
-      });
-    }
-    const equity = f6v2State.cash + positionValue;
-    const f6v2Trades = tradesFromFile(F6V2_TRADES_FILE);
-    portfolioInputs.push({ initial: F6V2_INITIAL_CASH_KRW, equity, trades: f6v2Trades });
-    strategies.push({
-      id: 'F6_v2',
-      name: 'F6_v2 NEW_HIGH 42 (TP_OPT)',
-      description: strategyDescription('F6_v2'),
-      rule: `7d high break + 양봉 + vol z≥0.5 → TP+${F6V2_TP_PCT}%/SL${F6V2_SL_PCT}%/MAX ${F6V2_MAX_BARS/6}d`,
-      capitalAlloc: F6V2_INITIAL_CASH_KRW,
-      cash: f6v2State.cash,
-      positionValue,
-      totalEquity: equity,
-      returnRate: (equity - F6V2_INITIAL_CASH_KRW) / F6V2_INITIAL_CASH_KRW * 100,
-      totalTrades: f6v2State.totalTrades || 0,
-      totalRealizedPnl: f6v2State.totalRealizedPnl || 0,
-      positions,
-      lastTickAt: f6v2State.lastTickAt || null,
-      metrics: computeStrategyMetrics({
-        initial: F6V2_INITIAL_CASH_KRW, cash: f6v2State.cash,
-        positions: f6v2State.positions || [], trades: f6v2Trades, currentPrices: priceByMarket,
-      }),
-    });
-  }
-
   // F6
   if (f6State) {
     const positions = [];
@@ -338,97 +270,7 @@ export async function GET() {
     });
   }
 
-  // F6_v3 (CONFIRM) — 거짓돌파 확정 + TP10/SL3, 25%×4
-  if (f6v3State) {
-    const positions = [];
-    let positionValue = 0;
-    for (const pos of (f6v3State.positions || [])) {
-      const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
-      const profitRate = (cur - pos.entryPrice) / pos.entryPrice * 100;
-      const profitKrw = pos.vol * cur - pos.cashUsed;
-      const v = pos.vol * cur;
-      positionValue += v;
-      positions.push({
-        market: pos.market,
-        entryDate: pos.entryDate,
-        entryPrice: pos.entryPrice,
-        currentPrice: cur,
-        vol: pos.vol,
-        profitRate,
-        profitKrw,
-        daysHeld: daysSince(pos.entryDate),
-      });
-    }
-    const equity = f6v3State.cash + positionValue;
-    const f6v3Trades = tradesFromFile(F6V3_TRADES_FILE);
-    portfolioInputs.push({ initial: F6V3_INITIAL_CASH_KRW, equity, trades: f6v3Trades });
-    strategies.push({
-      id: 'F6_v3',
-      name: 'F6_v3 NEW_HIGH 42 (CONFIRM)',
-      description: strategyDescription('F6_v3'),
-      rule: `7d high break + 확인봉 follow + vol z≥0.5 → TP+${F6V3_TP_PCT}%/SL${F6V3_SL_PCT}%/MAX ${F6V3_MAX_BARS/6}d, 25%×4`,
-      capitalAlloc: F6V3_INITIAL_CASH_KRW,
-      cash: f6v3State.cash,
-      positionValue,
-      totalEquity: equity,
-      returnRate: (equity - F6V3_INITIAL_CASH_KRW) / F6V3_INITIAL_CASH_KRW * 100,
-      totalTrades: f6v3State.totalTrades || 0,
-      totalRealizedPnl: f6v3State.totalRealizedPnl || 0,
-      positions,
-      lastTickAt: f6v3State.lastTickAt || null,
-      metrics: computeStrategyMetrics({
-        initial: F6V3_INITIAL_CASH_KRW, cash: f6v3State.cash,
-        positions: f6v3State.positions || [], trades: f6v3Trades, currentPrices: priceByMarket,
-      }),
-    });
-  }
-
-  // F6_v5 (TRAIL) — F6 신호 + 트레일링 스톱(승자 태우기). H4 백테스트 근거.
-  if (f6v5State) {
-    const positions = [];
-    let positionValue = 0;
-    for (const pos of (f6v5State.positions || [])) {
-      const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
-      const profitRate = (cur - pos.entryPrice) / pos.entryPrice * 100;
-      const profitKrw = pos.vol * cur - pos.cashUsed;
-      const v = pos.vol * cur;
-      positionValue += v;
-      positions.push({
-        market: pos.market,
-        entryDate: pos.entryDate,
-        entryPrice: pos.entryPrice,
-        currentPrice: cur,
-        vol: pos.vol,
-        profitRate,
-        profitKrw,
-        daysHeld: daysSince(pos.entryDate),
-      });
-    }
-    const equity = f6v5State.cash + positionValue;
-    const f6v5Trades = tradesFromFile(F6V5_TRADES_FILE);
-    portfolioInputs.push({ initial: F6V5_INITIAL_CASH_KRW, equity, trades: f6v5Trades });
-    strategies.push({
-      id: 'F6_v5',
-      name: 'F6_v5 NEW_HIGH 42 (TRAIL A2·안정)',
-      description: strategyDescription('F6_v5'),
-      rule: `7d high break + 양봉 + vol z≥0.5 → SL${F6V5_SL_PCT}%, +${F6V5_TRAIL_ACT}% 후 고점−${F6V5_TRAIL_GAP}% 트레일 / MAX ${F6V5_MAX_BARS/6}d, 33%×3`,
-      capitalAlloc: F6V5_INITIAL_CASH_KRW,
-      cash: f6v5State.cash,
-      positionValue,
-      totalEquity: equity,
-      returnRate: (equity - F6V5_INITIAL_CASH_KRW) / F6V5_INITIAL_CASH_KRW * 100,
-      totalTrades: f6v5State.totalTrades || 0,
-      totalRealizedPnl: f6v5State.totalRealizedPnl || 0,
-      positions,
-      lastTickAt: f6v5State.lastTickAt || null,
-      metrics: computeStrategyMetrics({
-        initial: F6V5_INITIAL_CASH_KRW, cash: f6v5State.cash,
-        positions: f6v5State.positions || [], trades: f6v5Trades, currentPrices: priceByMarket,
-      }),
-    });
-  }
-
-  // F6_v6 (TRAIL A4·수익) — F6 신호 + 트레일링(act4/gap2). F6_v5(A2)의 공격형 자매.
+  // F6_v6 (TRAIL 12h·A2) — F6 신호를 12h 봉에 · 트레일링(act2/gap2).
   if (f6v6State) {
     const positions = [];
     let positionValue = 0;
@@ -473,59 +315,13 @@ export async function GET() {
     });
   }
 
-  // F6_v7 (TRAIL A4·수익) — F6 신호 + 트레일링(act4/gap2). F6_v5(A2)의 공격형 자매.
-  if (f6v7State) {
+  // F7 계열 — "체결손실 0" 설계: TP 지정가 + 시간청산(+ F7_sl 만 손절). 규칙은 paper-f7-store.ts.
+  for (const { v, state } of f7States) {
+    if (!state) continue;
     const positions = [];
     let positionValue = 0;
-    for (const pos of (f6v7State.positions || [])) {
+    for (const pos of (state.positions || [])) {
       const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
-      const profitRate = (cur - pos.entryPrice) / pos.entryPrice * 100;
-      const profitKrw = pos.vol * cur - pos.cashUsed;
-      const v = pos.vol * cur;
-      positionValue += v;
-      positions.push({
-        market: pos.market,
-        entryDate: pos.entryDate,
-        entryPrice: pos.entryPrice,
-        currentPrice: cur,
-        vol: pos.vol,
-        profitRate,
-        profitKrw,
-        daysHeld: daysSince(pos.entryDate),
-      });
-    }
-    const equity = f6v7State.cash + positionValue;
-    const f6v7Trades = tradesFromFile(F6V7_TRADES_FILE);
-    portfolioInputs.push({ initial: F6V7_INITIAL_CASH_KRW, equity, trades: f6v7Trades });
-    strategies.push({
-      id: 'F6_v7',
-      name: 'F6_v7',
-      description: strategyDescription('F6_v7'),
-      rule: `7d high break + 양봉 + vol z≥0.5 → SL${F6V7_SL_PCT}%, +${F6V7_TRAIL_ACT}% 후 고점−${F6V7_TRAIL_GAP}% 트레일 / MAX ${F6V7_MAX_BARS/6}d, ${F6V7_POSITION_PCT*100}%×${F6V7_MAX_CONCURRENT} · ★크론 봉마감 정렬(KST 01/05/09/13/17/21)`,
-      capitalAlloc: F6V7_INITIAL_CASH_KRW,
-      cash: f6v7State.cash,
-      positionValue,
-      totalEquity: equity,
-      returnRate: (equity - F6V7_INITIAL_CASH_KRW) / F6V7_INITIAL_CASH_KRW * 100,
-      totalTrades: f6v7State.totalTrades || 0,
-      totalRealizedPnl: f6v7State.totalRealizedPnl || 0,
-      positions,
-      lastTickAt: f6v7State.lastTickAt || null,
-      metrics: computeStrategyMetrics({
-        initial: F6V7_INITIAL_CASH_KRW, cash: f6v7State.cash,
-        positions: f6v7State.positions || [], trades: f6v7Trades, currentPrices: priceByMarket,
-      }),
-    });
-  }
-
-  // F6_v8 (TRAIL A2 + 증액) — v5와 전부 같고 "보유 코인 재신호 시 추가 진입"만 다름. v5가 대조군.
-  if (f6v8State) {
-    const positions = [];
-    let positionValue = 0;
-    for (const pos of (f6v8State.positions || [])) {
-      const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
-      const profitRate = (cur - pos.entryPrice) / pos.entryPrice * 100;
-      const profitKrw = pos.vol * cur - pos.cashUsed;
       positionValue += pos.vol * cur;
       positions.push({
         market: pos.market,
@@ -533,31 +329,31 @@ export async function GET() {
         entryPrice: pos.entryPrice,
         currentPrice: cur,
         vol: pos.vol,
-        profitRate,
-        profitKrw,
+        profitRate: (cur - pos.entryPrice) / pos.entryPrice * 100,
+        profitKrw: pos.vol * cur - pos.cashUsed,
         daysHeld: daysSince(pos.entryDate),
       });
     }
-    const equity = f6v8State.cash + positionValue;
-    const f6v8Trades = tradesFromFile(F6V8_TRADES_FILE);
-    portfolioInputs.push({ initial: F6V8_INITIAL_CASH_KRW, equity, trades: f6v8Trades });
+    const equity = state.cash + positionValue;
+    const trades = tradesFromFile(f7Files(v).trades);
+    portfolioInputs.push({ initial: F7_INITIAL_CASH_KRW, equity, trades });
     strategies.push({
-      id: 'F6_v8',
-      name: 'F6_v8',
-      description: strategyDescription('F6_v8'),
-      rule: `7d high break + 양봉 + vol z\u22650.5 \u2192 SL${F6V8_SL_PCT}%, +${F6V8_TRAIL_ACT}% 후 고점\u2212${F6V8_TRAIL_GAP}% 트레일 / MAX ${F6V8_MAX_BARS/6}d, ${F6V8_POSITION_PCT*100}%\u00d7${F6V8_MAX_CONCURRENT} · 코인당 최대 ${F6V8_MAX_PER_COIN}트란치`,
-      capitalAlloc: F6V8_INITIAL_CASH_KRW,
-      cash: f6v8State.cash,
+      id: v.id,
+      name: v.name,
+      description: strategyDescription(v.id),
+      rule: `7d high break + 양봉 + vol z\u22650.5 \u2192 TP 지정가 +${v.tpPct}% / ${v.slPct == null ? '스톱 없음' : `손절 ${v.slPct}%(봉마감 시장가)`} / ${v.maxBars / 6}일 시간청산, ${F7_POSITION_PCT * 100}%\u00d7${F7_MAX_CONCURRENT}`,
+      capitalAlloc: F7_INITIAL_CASH_KRW,
+      cash: state.cash,
       positionValue,
       totalEquity: equity,
-      returnRate: (equity - F6V8_INITIAL_CASH_KRW) / F6V8_INITIAL_CASH_KRW * 100,
-      totalTrades: f6v8State.totalTrades || 0,
-      totalRealizedPnl: f6v8State.totalRealizedPnl || 0,
+      returnRate: (equity - F7_INITIAL_CASH_KRW) / F7_INITIAL_CASH_KRW * 100,
+      totalTrades: state.totalTrades || 0,
+      totalRealizedPnl: state.totalRealizedPnl || 0,
       positions,
-      lastTickAt: f6v8State.lastTickAt || null,
+      lastTickAt: state.lastTickAt || null,
       metrics: computeStrategyMetrics({
-        initial: F6V8_INITIAL_CASH_KRW, cash: f6v8State.cash,
-        positions: f6v8State.positions || [], trades: f6v8Trades, currentPrices: priceByMarket,
+        initial: F7_INITIAL_CASH_KRW, cash: state.cash,
+        positions: state.positions || [], trades, currentPrices: priceByMarket,
       }),
     });
   }

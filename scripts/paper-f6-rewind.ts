@@ -24,30 +24,24 @@
  * 사용: npx tsx scripts/paper-f6-rewind.ts                          (dry run, 마지막 tick 1개)
  *       npx tsx scripts/paper-f6-rewind.ts --apply                  (적용)
  *       npx tsx scripts/paper-f6-rewind.ts --to "2026-08-04 20:00"  (KST 기준 깊은 되감기, dry run)
- *       ... --only F6,F6_v2,F6_v3,F6_v5                            (대상 전략 제한)
+ *       ... --only F6,F7,F7_sl,F7_p                                 (대상 전략 제한)
  *
  * ⚠️ 되감기 전 data/paper-f6* 백업 권장. 되감기 직후 반드시 해당 backfill 을 실행할 것.
  */
 import 'dotenv/config';
 import fs from 'fs';
 import { F6_STATE_FILE, F6_TRADES_FILE, F6_TICKS_FILE, F6_FEE, F6_MAX_BARS } from '@/lib/paper-f6-store';
-import { F6V2_STATE_FILE, F6V2_TRADES_FILE, F6V2_TICKS_FILE, F6V2_FEE, F6V2_MAX_BARS } from '@/lib/paper-f6v2-store';
-import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_TICKS_FILE, F6V3_FEE, F6V3_MAX_BARS } from '@/lib/paper-f6v3-store';
-import { F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_TICKS_FILE, F6V5_FEE, F6V5_MAX_BARS } from '@/lib/paper-f6v5-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_FEE, F6V6_MAX_BARS } from '@/lib/paper-f6v6-store';
-import { F6V7_STATE_FILE, F6V7_TRADES_FILE, F6V7_TICKS_FILE, F6V7_FEE, F6V7_MAX_BARS } from '@/lib/paper-f6v7-store';
-import {
-  F6V8_STATE_FILE, F6V8_TRADES_FILE, F6V8_TICKS_FILE, F6V8_FEE, F6V8_MAX_BARS,
-} from '@/lib/paper-f6v8-store';
+import { F7_VARIANTS, F7_FEE, f7Files } from '@/lib/paper-f7-store';
 import { f6StateAsOf, restorePositionFromTrade, readJsonlFile } from '@/lib/paper-asof';
 
 const APPLY = process.argv.includes('--apply');
-/** --only F6,F6_v2 처럼 대상 제한 (미지정 시 전체) */
+/** --only F6,F7 처럼 대상 제한 (미지정 시 전체) */
 const ONLY = (() => {
   const i = process.argv.indexOf('--only');
   if (i < 0) return null;
   const raw = process.argv[i + 1];
-  if (!raw) throw new Error('--only 뒤에 전략 목록이 필요함 (예: F6,F6_v2)');
+  if (!raw) throw new Error('--only 뒤에 전략 목록이 필요함 (예: F6,F7)');
   return new Set(raw.split(',').map((x) => x.trim()));
 })();
 
@@ -69,12 +63,11 @@ interface Target {
 
 const TARGETS: Target[] = [
   { name: 'F6',    stateFile: F6_STATE_FILE,   tradesFile: F6_TRADES_FILE,   ticksFile: F6_TICKS_FILE,   FEE: F6_FEE,   MAX_BARS: F6_MAX_BARS },
-  { name: 'F6_v2', stateFile: F6V2_STATE_FILE, tradesFile: F6V2_TRADES_FILE, ticksFile: F6V2_TICKS_FILE, FEE: F6V2_FEE, MAX_BARS: F6V2_MAX_BARS },
-  { name: 'F6_v3', stateFile: F6V3_STATE_FILE, tradesFile: F6V3_TRADES_FILE, ticksFile: F6V3_TICKS_FILE, FEE: F6V3_FEE, MAX_BARS: F6V3_MAX_BARS },
-  { name: 'F6_v5', stateFile: F6V5_STATE_FILE, tradesFile: F6V5_TRADES_FILE, ticksFile: F6V5_TICKS_FILE, FEE: F6V5_FEE, MAX_BARS: F6V5_MAX_BARS },
+  ...F7_VARIANTS.map((v) => {
+    const f = f7Files(v);
+    return { name: v.id, stateFile: f.state, tradesFile: f.trades, ticksFile: f.ticks, FEE: F7_FEE, MAX_BARS: v.maxBars };
+  }),
   { name: 'F6_v6', stateFile: F6V6_STATE_FILE, tradesFile: F6V6_TRADES_FILE, ticksFile: F6V6_TICKS_FILE, FEE: F6V6_FEE, MAX_BARS: F6V6_MAX_BARS },
-  { name: 'F6_v7', stateFile: F6V7_STATE_FILE, tradesFile: F6V7_TRADES_FILE, ticksFile: F6V7_TICKS_FILE, FEE: F6V7_FEE, MAX_BARS: F6V7_MAX_BARS },
-  { name: 'F6_v8', stateFile: F6V8_STATE_FILE, tradesFile: F6V8_TRADES_FILE, ticksFile: F6V8_TICKS_FILE, FEE: F6V8_FEE, MAX_BARS: F6V8_MAX_BARS },
 ];
 
 /** --to 모드: 지정 시각 이하 마지막 tick 상태로 재구성 */
