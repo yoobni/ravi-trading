@@ -35,9 +35,9 @@ async function fetchBars(market: string, count = 400): Promise<BarLite[]> {
   const seen = new Set<number>();
   return acc
     .map(c => ({
-      // ⚠ 시각 규약: 여기 ts 는 **진짜 UTC** 다(candle_date_time_utc + 'Z').
-    //   data/candle-cache 의 ts 는 KST 벽시계를 UTC 인 척 담고 있어 9시간 어긋난다.
-    //   두 소스를 한 계산에 섞지 말 것. 표시는 kstISO() 를 쓴다.
+      // 시각 규약: ts 는 UTC ms. data/candle-cache 도 같은 UTC ms 라 섞어 써도 된다.
+    //   (캐시는 candle_date_time_kst 를 로컬 TZ=Asia/Seoul 로 파싱해 같은 값이 된다)
+    //   화면·기록 표시는 kstISO() 로 +9h 한다 — 계산에 그 값을 쓰지 말 것.
     ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
       open: (c as any).opening_price, high: (c as any).high_price,
       low: (c as any).low_price, close: (c as any).trade_price,

@@ -51,9 +51,9 @@ async function fetchBars(market: string, count = 400): Promise<BarLite[]> {
   const seen = new Set<number>();
   return acc
     .map(c => ({
-      // ⚠ 시각 규약: 여기 ts 는 **진짜 UTC** 다(candle_date_time_utc + 'Z').
-    //   data/candle-cache 의 ts 는 KST 벽시계를 UTC 인 척 담고 있어 9시간 어긋난다.
-    //   두 소스를 한 계산에 섞지 말 것. 표시는 kstISO() 를 쓴다.
+      // 시각 규약: ts 는 UTC ms. data/candle-cache 도 같은 UTC ms 라 섞어 써도 된다.
+    //   (캐시는 candle_date_time_kst 를 로컬 TZ=Asia/Seoul 로 파싱해 같은 값이 된다)
+    //   화면·기록 표시는 kstISO() 로 +9h 한다 — 계산에 그 값을 쓰지 말 것.
     ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
       open: (c as any).opening_price, high: (c as any).high_price,
       low: (c as any).low_price, close: (c as any).trade_price,
@@ -84,12 +84,11 @@ async function backfillVariant(spec: VariantSpec, barsByMarket: Map<string, BarL
   // tick은 KST 00:01, 04:01 ... 식 (4h 끝나고 1분 후). 시뮬에선 4h boundary로 처리.
   const tickPoints: number[] = [];
   // 가장 가까운 다음 4h boundary 찾기
-  const startKst = startTs + 9*3600_000;
-  const startHour = new Date(startKst).getUTCHours();
-  const nextBoundaryHour = Math.ceil((startHour + 1) / 4) * 4;
-  let cursorKst = new Date(startKst);
-  cursorKst.setUTCHours(nextBoundaryHour, 1, 0, 0); // 4h + 1분
-  let cursor = cursorKst.getTime() - 9*3600_000;
+  // 2026-10-01: 라이브 크론을 봉마감 정렬(KST 01/05/09/13/17/21)로 옮기면서 백필 격자도 맞춘다.
+  //   안 맞추면 tick 커버리지 격자에 가짜 결손이 생긴다 (v7 에서 겪은 문제).
+  //   4h 는 epoch(UTC 자정)을 정확히 나누므로 floor 만으로 봉마감 경계가 나온다.
+  let cursor = Math.floor(startTs / FOUR_H_MS) * FOUR_H_MS + 1 * 60_000;
+  while (cursor <= startTs) cursor += FOUR_H_MS;
   while (cursor < now) {
     tickPoints.push(cursor);
     cursor += FOUR_H_MS;

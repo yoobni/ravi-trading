@@ -7,6 +7,7 @@
  * F6 동일 신호(evaluateF6v5Signal)·사이징(33%×3). exit만 트레일링(evalTrailExit).
  */
 import 'dotenv/config';
+import { ensureNoGap } from '@/lib/paper-gap-guard';
 import { getUpbitClient } from '@/lib/upbit-client';
 import {
   F6V5_COINS, F6V5_FEE, F6V5_SLIPPAGE, F6V5_MAX_BARS,
@@ -14,6 +15,7 @@ import {
   evaluateF6v5Signal, evalTrailExit, type BarLite,
   withF6V5State, appendF6V5Trade, appendF6V5Tick,
   type F6V5Position, type F6V5ClosedTrade,
+  F6V5_STATE_FILE,
 } from '@/lib/paper-f6v5-store';
 
 function kstISO(ts: number): string { return new Date(ts + 9 * 3600_000).toISOString(); }
@@ -27,9 +29,9 @@ async function fetchBars(market: string, count = 200): Promise<BarLite[]> {
   const candles = await client.getCandlesMinutes(240, market, count);
   const sorted = candles.slice().reverse();
   return sorted.map(c => ({
-    // ⚠ 시각 규약: 여기 ts 는 **진짜 UTC** 다(candle_date_time_utc + 'Z').
-    //   data/candle-cache 의 ts 는 KST 벽시계를 UTC 인 척 담고 있어 9시간 어긋난다.
-    //   두 소스를 한 계산에 섞지 말 것. 표시는 kstISO() 를 쓴다.
+    // 시각 규약: ts 는 UTC ms. data/candle-cache 도 같은 UTC ms 라 섞어 써도 된다.
+    //   (캐시는 candle_date_time_kst 를 로컬 TZ=Asia/Seoul 로 파싱해 같은 값이 된다)
+    //   화면·기록 표시는 kstISO() 로 +9h 한다 — 계산에 그 값을 쓰지 말 것.
     ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
     open: (c as any).opening_price, high: (c as any).high_price,
     low: (c as any).low_price, close: (c as any).trade_price,
@@ -42,6 +44,9 @@ interface PendingSignal { market: string; ts: number; volZ: number; }
 (async () => {
   const now = Date.now();
   console.log(`\n=== F6_v5 paper tick @ ${kstISO(now).slice(0, 19)} ===\n`);
+
+  // 결손 자동 복구: 포인터가 뒤에 있는 지금(= tick 이 쓰기 전)이 되감기 없이 채울 수 있는 유일한 타이밍
+  ensureNoGap('F6_v5', F6V5_STATE_FILE, 4 * 3600_000, 'paper-f6v5-backfill.ts');
 
   const barsByMarket = new Map<string, BarLite[]>();
   for (const market of F6V5_COINS) {
@@ -66,6 +71,16 @@ interface PendingSignal { market: string; ts: number; volZ: number; }
       const exit = evalTrailExit(confirmedBars, pos.entryPrice);
       if (exit) {
         const exitPrice = exit.price * (1 - F6V5_SLIPPAGE);
+        // ── 실행 현실성 기록 (정산에는 쓰지 않는다) ──
+        // 페이퍼는 exitPrice(스톱/목표 '가격')로 정산한다. 그 가격에 실제로 팔려면
+        // 거래소에 스톱 주문이 걸려 있어야 한다. 크론은 4시간에 한 번 돌기 때문에,
+        // 주문을 안 걸어두면 실제 체결은 "지금 이 순간 시장가"에 가깝다.
+        // 두 값을 함께 남겨 격차를 계속 측정한다 — 실거래 설계 결정의 근거가 된다.
+        let exitPriceMarket: number | null = null;
+        try {
+          const tkx = await getUpbitClient().getTicker([pos.market]);
+          if (tkx[0]) exitPriceMarket = (tkx[0] as any).trade_price * (1 - F6V5_SLIPPAGE);
+        } catch { /* 시세 조회 실패 시 null — 정산에는 영향 없다 */ }
         const cashGained = pos.vol * exitPrice * (1 - F6V5_FEE);
         const profitKrw = cashGained - pos.cashUsed;
         const profitRate = (exitPrice - pos.entryPrice) / pos.entryPrice * 100;
@@ -75,7 +90,7 @@ interface PendingSignal { market: string; ts: number; volZ: number; }
         const closed: F6V5ClosedTrade = {
           market: pos.market, entryTs: pos.entryTs, exitTs: exit.ts,
           entryDate: pos.entryDate, exitDate: kstISO(exit.ts),
-          entryPrice: pos.entryPrice, exitPrice, profitRate, profitKrw,
+          entryPrice: pos.entryPrice, exitPrice, exitPriceMarket, profitRate, profitKrw,
           reason: exit.reason, recordedAt: new Date().toISOString(),
         };
         exitsThisTick.push(closed);
