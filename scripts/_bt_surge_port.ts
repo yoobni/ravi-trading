@@ -49,7 +49,11 @@ for (const [m, b] of ALL) IDX.set(m, new Map(b.map((x, i) => [x.ts, i])));
 
 interface Pos { m: string; ep: number; vol: number; used: number; bars: number; peak: number; stop: number; armed: boolean; last: number; src: string }
 
+type Exit = 'A2' | 'WIDE' | 'NONE';
+let EX: Exit = 'A2';
+const PAR = () => EX === 'A2' ? { sl: -2, act: 2, gap: 2 } : EX === 'WIDE' ? { sl: -5, act: 2, gap: 4 } : { sl: -99, act: 2, gap: 99 };
 function run(use: 'F6' | 'BOTH', pct: number, vz: number, size: number, settle: 'stop' | 'market', from = 0, to = Infinity) {
+  const P = PAR();
   let cash = INIT; const open: Pos[] = [];
   let peakEq = INIT, mdd = 0;
   const bySrc = new Map<string, { n: number; s: number }>();
@@ -61,7 +65,7 @@ function run(use: 'F6' | 'BOTH', pct: number, vz: number, size: number, settle: 
       if (i === undefined) continue;
       const bar = bb[i]; q.last = bar.close; q.bars++;
       let px: number | null = null;
-      if (bar.low <= q.stop) px = settle === 'stop' ? q.stop : bar.close;   // ★ 여기가 유일한 차이
+      if (EX !== 'NONE' && bar.low <= q.stop) px = settle === 'stop' ? q.stop : bar.close;
       else if (q.bars >= MAXB) px = bar.close;
       if (px != null) {
         const got = q.vol * px * (1 - SLIP) * (1 - FEE);
@@ -71,8 +75,8 @@ function run(use: 'F6' | 'BOTH', pct: number, vz: number, size: number, settle: 
         open.splice(p, 1); continue;
       }
       q.peak = Math.max(q.peak, bar.high);
-      if (!q.armed && q.peak >= q.ep * (1 + ACT / 100)) q.armed = true;
-      if (q.armed) q.stop = Math.max(q.stop, q.peak * (1 - GAP / 100));
+      if (!q.armed && q.peak >= q.ep * (1 + P.act / 100)) q.armed = true;
+      if (q.armed) q.stop = Math.max(q.stop, q.peak * (1 - P.gap / 100));
     }
     // ── 진입 (직전 확정봉 신호 → 이번 봉 시가) ──
     if (open.length < 3) {
@@ -89,7 +93,7 @@ function run(use: 'F6' | 'BOTH', pct: number, vz: number, size: number, settle: 
         const used = cash * size;
         if (used < 5000) continue;
         cash -= used;
-        open.push({ m, ep, vol: used * (1 - FEE) / ep, used, bars: 0, peak: ep, stop: ep * (1 + SL / 100), armed: false, last: ep, src: f6 ? 'F6' : 'SURGE' });
+        open.push({ m, ep, vol: used * (1 - FEE) / ep, used, bars: 0, peak: ep, stop: ep * (1 + P.sl / 100), armed: false, last: ep, src: f6 ? 'F6' : 'SURGE' });
       }
     }
     const eq = cash + open.reduce((a, q) => a + q.vol * q.last, 0);
@@ -110,17 +114,13 @@ function sizeForMdd(use: 'F6' | 'BOTH', pct: number, vz: number, target: number,
 }
 
 const TARGET = 17;
-console.log(`28코인 4h · ${new Date(TS[0]).toISOString().slice(0, 10)}~${new Date(TS[TS.length - 1]).toISOString().slice(0, 10)} · 동일 MDD ${TARGET}% 고정\n`);
-for (const settle of ['stop', 'market'] as const) {
-  const sF6 = sizeForMdd('F6', 0, 0, TARGET, settle);
-  const rF6 = run('F6', 0, 0, sF6, settle);
-  console.log(`[정산 ${settle}]  F6 단독: 총익 ${rF6.ret.toFixed(0)}% · MDD ${rF6.mdd.toFixed(1)}% · size ${(sF6 * 100).toFixed(1)}%`);
-  for (const [pct, vz] of [[7, 1], [6, 1.5], [8, 1]] as const) {
-    const s = sizeForMdd('BOTH', pct, vz, TARGET, settle);
-    const r = run('BOTH', pct, vz, s, settle);
-    const f6e = r.bySrc.get('F6'), sge = r.bySrc.get('SURGE');
-    console.log(`   결합 +${pct}% z${vz}: 총익 ${r.ret.toFixed(0)}% (F6대비 ${(r.ret - rF6.ret >= 0 ? '+' : '')}${(r.ret - rF6.ret).toFixed(0)}%p) · MDD ${r.mdd.toFixed(1)}%` +
-      `  | F6 ${f6e?.n ?? 0}건 ${(100 * (f6e?.s ?? 0) / Math.max(1, f6e?.n ?? 1)).toFixed(2)}% · SURGE ${sge?.n ?? 0}건 ${(100 * (sge?.s ?? 0) / Math.max(1, sge?.n ?? 1)).toFixed(2)}%`);
-  }
-  console.log('');
+console.log(`28코인 4h · ${new Date(TS[0]).toISOString().slice(0,10)}~${new Date(TS[TS.length-1]).toISOString().slice(0,10)} · 동일 MDD ${TARGET}% · 전부 시장가(현실) 정산\n`);
+console.log('청산규칙              총익   MDD    size   거래수   평균보유');
+for (const ex of ['A2','WIDE','NONE'] as Exit[]) {
+  EX = ex;
+  const sz = sizeForMdd('F6', 0, 0, TARGET, 'market');
+  const r = run('F6', 0, 0, sz, 'market');
+  const e = r.bySrc.get('F6');
+  const lab = ex === 'A2' ? 'A2 (현행 SL-2/G2)' : ex === 'WIDE' ? '넓은스톱 SL-5/G4' : '스톱없음(14일보유)';
+  console.log(`${lab.padEnd(21)} ${(r.ret.toFixed(0)+'%').padStart(7)} ${(r.mdd.toFixed(1)+'%').padStart(6)} ${((sz*100).toFixed(1)+'%').padStart(7)} ${String(e?.n ?? 0).padStart(7)}`);
 }
