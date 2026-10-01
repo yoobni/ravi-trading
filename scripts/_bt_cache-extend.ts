@@ -53,18 +53,17 @@ async function extend(market: string, unit: number) {
     if (!candles.length) break;
     fetched.push(...candles);
     const oldest = candles[candles.length - 1] as any;
-    const oldestTs = new Date(oldest.candle_date_time_kst).getTime();
+    const oldestTs = new Date(oldest.candle_date_time_utc + 'Z').getTime();
     if (oldestTs <= lastTs) break;
     to = oldest.candle_date_time_utc;
     await new Promise((r) => setTimeout(r, 110));
   }
 
   const newBars: Bar[] = fetched.map((c: any) => ({
-      // ⚠ 시각 규약: 캔들 캐시의 ts 는 **KST 벽시계를 UTC 인 척** 담는다.
-      //   new Date(ts).toISOString() 이 곧 KST 표기가 되도록 한 것.
-      //   반면 페이퍼 틱(scripts/paper-f6*-tick.ts)의 ts 는 **진짜 UTC** 다.
-      //   두 값을 같은 계산에 섞으면 9시간이 어긋난다 — 실제로 한 번 당했다(2026-08-25).
-    ts: new Date(c.candle_date_time_kst).getTime(),
+    // ts 는 UTC ms. 예전에는 candle_date_time_kst 를 로컬 파싱해 같은 값을 얻었으나,
+    // 그건 기계의 TZ 가 Asia/Seoul 일 때만 맞다(CI·서버에서 9시간 어긋난다).
+    // candle_date_time_utc 를 명시적으로 쓴다 — 기존 캐시와 동일한 값이 나온다.
+    ts: new Date(c.candle_date_time_utc + 'Z').getTime(),
     date: c.candle_date_time_kst.slice(0, 16),
     open: c.opening_price, high: c.high_price, low: c.low_price, close: c.trade_price,
     volume: c.candle_acc_trade_volume,

@@ -43,7 +43,10 @@ export const F6V6_COINS = [
 export interface BarLite { ts: number; open: number; high: number; low: number; close: number; volume: number; }
 
 export interface F6V6Position { market: string; entryTs: number; entryDate: string; entryPrice: number; vol: number; cashUsed: number; entryBarsRemaining: number; }
-export interface F6V6ClosedTrade { market: string; entryTs: number; exitTs: number; entryDate: string; exitDate: string; entryPrice: number; exitPrice: number; profitRate: number; profitKrw: number; reason: 'TRAIL' | 'SL' | 'TIME' | 'MANUAL'; recordedAt: string; }
+export interface F6V6ClosedTrade { market: string; entryTs: number; exitTs: number; entryDate: string; exitDate: string; entryPrice: number; exitPrice: number;
+  /** 크론이 청산을 인지한 시점의 시장가(슬리피지 반영). 정산에는 쓰지 않는다 — 감시 공백 비용 측정용. */
+  exitPriceMarket?: number | null;
+  profitRate: number; profitKrw: number; reason: 'TRAIL' | 'SL' | 'TIME' | 'MANUAL'; recordedAt: string; }
 export interface F6V6State { startedAt: string; lastTickTs: number | null; lastTickAt: string | null; cash: number; positions: F6V6Position[]; totalTrades: number; totalRealizedPnl: number; }
 
 export function ensureF6V6Dir() { if (!fs.existsSync(F6V6_DIR)) fs.mkdirSync(F6V6_DIR, { recursive: true }); }

@@ -51,6 +51,13 @@ export interface F6V2ClosedTrade {
   entryPrice: number; exitPrice: number;
   profitRate: number;
   profitKrw: number;
+  /**
+   * 크론이 청산을 인지한 그 시점의 시장가(슬리피지 반영). 정산에는 쓰지 않는다.
+   * exitPrice 는 스톱/목표 '가격'이라 거래소에 스톱 주문이 걸려 있어야 달성 가능하고,
+   * 주문 없이 크론이 보고 파는 실제 운영에서는 이 값에 가깝게 체결된다.
+   * 둘의 차이가 곧 "감시 공백 비용"이다. 시세 조회 실패 시 null.
+   */
+  exitPriceMarket?: number | null;
   reason: 'TP' | 'SL' | 'TIME' | 'MANUAL';
   recordedAt: string;
 }

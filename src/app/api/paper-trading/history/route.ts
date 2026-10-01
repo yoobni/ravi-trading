@@ -46,6 +46,32 @@ export interface HistoryTrade {
   reason: string;
 }
 
+/**
+ * 매매 원장 한 줄 — 매수와 매도를 **따로** 시간순으로 나열한다.
+ * 기존 `trades`(청산된 거래 한 줄에 진입·청산을 묶은 것)로는
+ *   ① 지금 보유 중인 포지션이 안 보이고
+ *   ② "언제 얼마를 넣고 뺐는지"의 시간순 흐름이 안 보인다.
+ */
+export interface LedgerEntry {
+  ts: number;
+  side: 'BUY' | 'SELL';
+  market: string;
+  price: number;
+  vol: number;
+  /** 체결 금액(원). BUY 는 투입액, SELL 은 회수액 */
+  amount: number;
+  /** BUY: 'SIGNAL' · SELL: TP/SL/TRAIL/TIME */
+  reason: string;
+  /** 이 체결 직후의 현금 잔액 */
+  cashAfter: number;
+  profitKrw?: number;
+  profitRate?: number;
+  /** BUY 인데 아직 청산되지 않았으면 true — 현재 보유 중 */
+  open?: boolean;
+  /** SELL 만. 크론 인지 시점의 시장가 (실행 격차 참고용, 정산에는 미반영) */
+  exitPriceMarket?: number | null;
+}
+
 export interface HistoryStrategy {
   id: string;
   name: string;
@@ -56,6 +82,8 @@ export interface HistoryStrategy {
   /** 하루에 기대되는 tick 수 (coverage 그리드 열 개수) */
   slotsPerDay: number;
   trades: HistoryTrade[];
+  /** 매수·매도 개별 행 (보유 중 포지션 포함), 시간순 */
+  ledger: LedgerEntry[];
   equityCurve: Array<{ ts: number; equity: number }>;
   coverage: {
     from: number;
@@ -147,6 +175,48 @@ function equityCurve(initial: number, trades: HistoryTrade[]) {
 }
 
 /** F6 계열 (4h / 12h) 공통 로더 */
+/**
+ * 매매 원장 구성. 청산된 거래는 BUY/SELL 두 줄로 펼치고, 미청산 포지션은 BUY 한 줄만 넣는다.
+ *
+ * 청산 기록에는 vol·cashUsed 가 없어 손익에서 역산한다:
+ *   profitKrw = cashUsed × ((1−fee)² × exit/entry − 1)
+ * 분모가 0 에 가까우면(수수료를 정확히 상쇄하는 청산) 역산이 불안정하므로 그 줄은 건너뛴다.
+ */
+function buildLedger(
+  tradesRaw: any[],
+  openPositions: any[],
+  initial: number,
+  fee: number,
+): LedgerEntry[] {
+  type Row = Omit<LedgerEntry, 'cashAfter'>;
+  const rows: Row[] = [];
+
+  for (const t of tradesRaw) {
+    const ratio = (t.exitPrice / t.entryPrice) * (1 - fee) ** 2;
+    const cashUsed = t.profitKrw / (ratio - 1);
+    if (!Number.isFinite(cashUsed) || cashUsed <= 0) continue;
+    const vol = (cashUsed * (1 - fee)) / t.entryPrice;
+    rows.push({ ts: t.entryTs, side: 'BUY', market: t.market, price: t.entryPrice, vol, amount: cashUsed, reason: 'SIGNAL' });
+    rows.push({
+      ts: t.exitTs, side: 'SELL', market: t.market, price: t.exitPrice, vol,
+      amount: cashUsed + t.profitKrw, reason: t.reason,
+      profitKrw: t.profitKrw, profitRate: t.profitRate,
+      exitPriceMarket: t.exitPriceMarket ?? null,
+    });
+  }
+  for (const p of openPositions) {
+    if (!Number.isFinite(p.cashUsed) || !Number.isFinite(p.vol)) continue;
+    rows.push({ ts: p.entryTs, side: 'BUY', market: p.market, price: p.entryPrice, vol: p.vol, amount: p.cashUsed, reason: 'SIGNAL', open: true });
+  }
+
+  rows.sort((a, b) => (a.ts - b.ts) || (a.side === 'SELL' ? -1 : 1));   // 같은 시각이면 매도 먼저(현금 확보 후 매수)
+  let cash = initial;
+  return rows.map((r) => {
+    cash += r.side === 'BUY' ? -r.amount : r.amount;
+    return { ...r, cashAfter: cash };
+  });
+}
+
 function f6Family(
   id: string,
   name: string,
@@ -156,8 +226,11 @@ function f6Family(
   stepMs: number,
   startedAt: number | null,
   now: number,
+  stateFile?: string,
 ): HistoryStrategy {
-  const trades: HistoryTrade[] = readJsonl<any>(tradesFile).map((t) => ({
+  const tradesRaw = readJsonl<any>(tradesFile);
+  const st = stateFile ? safeReadJson<any>(stateFile) : null;
+  const trades: HistoryTrade[] = tradesRaw.map((t) => ({
     market: t.market,
     entryTs: t.entryTs,
     exitTs: t.exitTs,
@@ -176,6 +249,7 @@ function f6Family(
     stepMs,
     slotsPerDay: Math.round(DAY / stepMs),
     trades,
+    ledger: buildLedger(tradesRaw, st?.positions ?? [], initial, 0.0005),
     equityCurve: equityCurve(initial, trades),
     coverage: buildCoverage(ticks, stepMs, startedAt, now),
   };
@@ -221,6 +295,17 @@ export async function GET() {
       stepMs: DAY,
       slotsPerDay: 1,
       trades,
+      // F1F2 는 미청산 포지션을 별도 파일로 관리하지 않는다 — 청산분만 원장에 올린다.
+      ledger: buildLedger(
+        f1f2Positions.filter((t) => t.strategy === key).map((t) => ({
+          market: 'KRW-BTC',
+          entryTs: Date.parse(t.entryDate + 'T02:00:00Z'),
+          exitTs: Date.parse(t.exitDate + 'T02:00:00Z'),
+          entryPrice: t.entryPrice, exitPrice: t.exitPrice,
+          profitRate: t.profitRate, profitKrw: t.profitKrw, reason: t.reason,
+        })),
+        [], F1F2_INITIAL_CASH, 0.0005,
+      ),
       equityCurve: equityCurve(F1F2_INITIAL_CASH, trades),
       coverage: buildCoverage(f1f2Ticks, DAY, f1f2Started, now),
     });
@@ -241,7 +326,7 @@ export async function GET() {
     { id: 'F6_v8', name: 'F6_v8', trades: F6V8_TRADES_FILE, ticks: F6V8_TICKS_FILE, state: F6V8_STATE_FILE, initial: F6V8_INITIAL_CASH_KRW, stepMs: 4 * HOUR },
   ];
   for (const d of f6Defs) {
-    out.push(f6Family(d.id, d.name, d.trades, d.ticks, d.initial, d.stepMs, started(d.state), now));
+    out.push(f6Family(d.id, d.name, d.trades, d.ticks, d.initial, d.stepMs, started(d.state), now, d.state));
   }
 
   return NextResponse.json({ strategies: out, now: new Date().toISOString() });

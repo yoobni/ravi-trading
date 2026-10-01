@@ -5,7 +5,8 @@
  *
  *   1) tick 커버리지: 기대 tick 슬롯을 라이브 / 백필 / 결손 으로 칠한 격자 (cron 구멍 눈으로 확인)
  *   2) 실현 자산 곡선: 청산 손익 누적 (tick 에 평가액이 없어 실현 기준)
- *   3) 거래 내역: 청산된 거래 전체
+ *   3) 매매 원장: 매수·매도 개별 행 (보유 중 포지션 포함)
+ *   4) 청산된 거래: 진입·청산을 한 줄로 묶은 요약
  *
  * 시각은 API 가 epoch ms(UTC) 로 주고 여기서 KST 로 포맷한다.
  */
@@ -28,6 +29,22 @@ interface HistoryTrade {
   reason: string;
 }
 
+interface LedgerEntry {
+  ts: number;
+  side: 'BUY' | 'SELL';
+  market: string;
+  price: number;
+  vol: number;
+  amount: number;
+  reason: string;
+  cashAfter: number;
+  profitKrw?: number;
+  profitRate?: number;
+  /** 아직 청산되지 않은 매수 = 현재 보유 중 */
+  open?: boolean;
+  exitPriceMarket?: number | null;
+}
+
 interface HistoryStrategy {
   id: string;
   name: string;
@@ -36,6 +53,7 @@ interface HistoryStrategy {
   stepMs: number;
   slotsPerDay: number;
   trades: HistoryTrade[];
+  ledger: LedgerEntry[];
   equityCurve: Array<{ ts: number; equity: number }>;
   coverage: {
     from: number;
@@ -293,6 +311,73 @@ function TradeTable({ strategy }: { strategy: HistoryStrategy }) {
   );
 }
 
+/**
+ * 매매 원장 — 매수·매도를 개별 행으로 시간순 나열.
+ * 위의 "거래 내역"은 청산된 거래를 한 줄로 묶어 보여주므로
+ *   ① 지금 보유 중인 포지션이 안 보이고 ② 자금이 언제 들어가고 나왔는지 흐름이 안 보인다.
+ * 이 표가 그 둘을 채운다. 최신이 위로 온다.
+ */
+function LedgerTable({ strategy }: { strategy: HistoryStrategy }) {
+  const daily = strategy.stepMs >= DAY;
+  const fmt = daily ? fmtDate : fmtDateTime;
+  const rows = useMemo(() => [...(strategy.ledger ?? [])].reverse(), [strategy.ledger]);
+  const openCount = rows.filter((r) => r.open).length;
+
+  if (!rows.length) return <p className="text-[11px] text-zinc-400 py-6 text-center">체결 기록 없음</p>;
+
+  return (
+    <>
+      {openCount > 0 && (
+        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+          보유 중 {openCount}건 — 아래에서 노란 배경 행입니다 (아직 매도되지 않음)
+        </p>
+      )}
+      <div className="max-h-[420px] overflow-y-auto overflow-x-auto">
+        <table className="w-full text-[11px]">
+          <thead className="sticky top-0 bg-white">
+            <tr className="text-[9px] uppercase text-zinc-400 border-b border-zinc-200">
+              <th className="text-left font-medium py-1 pr-2">시각 (KST)</th>
+              <th className="text-left font-medium py-1 pr-2">구분</th>
+              <th className="text-left font-medium py-1 pr-2">코인</th>
+              <th className="text-right font-medium py-1 pr-2">체결가</th>
+              <th className="text-right font-medium py-1 pr-2">수량</th>
+              <th className="text-right font-medium py-1 pr-2">금액</th>
+              <th className="text-right font-medium py-1 pr-2">손익</th>
+              <th className="text-left font-medium py-1 pr-2">사유</th>
+              <th className="text-right font-medium py-1">체결 후 현금</th>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {rows.map((r, i) => (
+              <tr key={i} className={`border-b border-zinc-50 ${r.open ? 'bg-amber-50' : 'hover:bg-zinc-50'}`}>
+                <td className="py-1 pr-2 text-zinc-500">{fmt(r.ts)}</td>
+                <td className={`py-1 pr-2 font-semibold ${r.side === 'BUY' ? 'text-blue-600' : 'text-zinc-700'}`}>
+                  {r.side === 'BUY' ? '매수' : '매도'}
+                </td>
+                <td className="py-1 pr-2 font-medium text-zinc-800">
+                  {r.market.replace('KRW-', '')}
+                  {r.open && <span className="ml-1 text-[9px] text-amber-700">보유중</span>}
+                </td>
+                <td className="py-1 pr-2 text-right text-zinc-600">{r.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                <td className="py-1 pr-2 text-right text-zinc-400">{r.vol.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                <td className="py-1 pr-2 text-right text-zinc-700">{fmtCompact(r.amount)}원</td>
+                <td className={`py-1 pr-2 text-right ${r.profitKrw == null ? 'text-zinc-300' : r.profitKrw >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {r.profitKrw == null ? '—' : `${r.profitKrw >= 0 ? '+' : ''}${fmtCompact(r.profitKrw)}원`}
+                  {r.profitRate != null && (
+                    <span className="ml-1 text-[9px]">({r.profitRate >= 0 ? '+' : ''}{r.profitRate.toFixed(1)}%)</span>
+                  )}
+                </td>
+                <td className="py-1 pr-2 text-zinc-500">{r.reason}</td>
+                <td className="py-1 text-right text-zinc-600">{fmtCompact(r.cashAfter)}원</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
 export default function PaperHistory() {
   const [data, setData] = useState<HistoryStrategy[] | null>(null);
   const [selected, setSelected] = useState<string>('F6');
@@ -368,7 +453,15 @@ export default function PaperHistory() {
         </div>
 
         <div className="bg-white border border-zinc-200 rounded-xl p-4 lg:col-span-2">
-          <h3 className="text-[11px] font-semibold text-zinc-700 mb-2">거래 내역 ({s.trades.length}건)</h3>
+          <div className="flex items-baseline justify-between mb-2">
+            <h3 className="text-[11px] font-semibold text-zinc-700">매매 원장 ({(s.ledger ?? []).length}행)</h3>
+            <span className="text-[9px] text-zinc-400">매수·매도 개별 행 · 보유 중 포지션 포함 · 최신순</span>
+          </div>
+          <LedgerTable strategy={s} />
+        </div>
+
+        <div className="bg-white border border-zinc-200 rounded-xl p-4 lg:col-span-2">
+          <h3 className="text-[11px] font-semibold text-zinc-700 mb-2">청산된 거래 ({s.trades.length}건)</h3>
           <TradeTable strategy={s} />
         </div>
       </div>

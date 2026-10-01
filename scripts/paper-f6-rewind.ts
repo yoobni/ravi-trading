@@ -36,6 +36,9 @@ import { F6V3_STATE_FILE, F6V3_TRADES_FILE, F6V3_TICKS_FILE, F6V3_FEE, F6V3_MAX_
 import { F6V5_STATE_FILE, F6V5_TRADES_FILE, F6V5_TICKS_FILE, F6V5_FEE, F6V5_MAX_BARS } from '@/lib/paper-f6v5-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_FEE, F6V6_MAX_BARS } from '@/lib/paper-f6v6-store';
 import { F6V7_STATE_FILE, F6V7_TRADES_FILE, F6V7_TICKS_FILE, F6V7_FEE, F6V7_MAX_BARS } from '@/lib/paper-f6v7-store';
+import {
+  F6V8_STATE_FILE, F6V8_TRADES_FILE, F6V8_TICKS_FILE, F6V8_FEE, F6V8_MAX_BARS,
+} from '@/lib/paper-f6v8-store';
 import { f6StateAsOf, restorePositionFromTrade, readJsonlFile } from '@/lib/paper-asof';
 
 const APPLY = process.argv.includes('--apply');
@@ -71,6 +74,7 @@ const TARGETS: Target[] = [
   { name: 'F6_v5', stateFile: F6V5_STATE_FILE, tradesFile: F6V5_TRADES_FILE, ticksFile: F6V5_TICKS_FILE, FEE: F6V5_FEE, MAX_BARS: F6V5_MAX_BARS },
   { name: 'F6_v6', stateFile: F6V6_STATE_FILE, tradesFile: F6V6_TRADES_FILE, ticksFile: F6V6_TICKS_FILE, FEE: F6V6_FEE, MAX_BARS: F6V6_MAX_BARS },
   { name: 'F6_v7', stateFile: F6V7_STATE_FILE, tradesFile: F6V7_TRADES_FILE, ticksFile: F6V7_TICKS_FILE, FEE: F6V7_FEE, MAX_BARS: F6V7_MAX_BARS },
+  { name: 'F6_v8', stateFile: F6V8_STATE_FILE, tradesFile: F6V8_TRADES_FILE, ticksFile: F6V8_TICKS_FILE, FEE: F6V8_FEE, MAX_BARS: F6V8_MAX_BARS },
 ];
 
 /** --to 모드: 지정 시각 이하 마지막 tick 상태로 재구성 */
