@@ -391,6 +391,10 @@ export async function GET() {
   // ── 조합 전략(파생): 구성 전략들의 평가액을 고정 비중으로 합산. 모든 구성 전략이 같은 시각(2026-10-02 밤)에 1,000만으로
   //    출발했으므로 비중 w 의 조합 평가액 = Σ w × 구성 평가액. 자체 매매는 없고 합계에서는 제외(benchmark — 이중 계산 방지).
   const byId = new Map(strategies.map((x) => [x.id, x]));
+  const TRADES_FILE_OF = new Map<string, string>([
+    ...SIMPLE_STRATEGIES.map((d) => [d.id, d.trades] as [string, string]),
+    ...F7_VARIANTS.map((v) => [v.id, f7Files(v).trades] as [string, string]),
+  ]);
   for (const c of COMBOS) {
     const parts = c.weights.map(([id, w]) => [byId.get(id), w] as const);
     if (parts.some(([x]) => !x)) continue;
@@ -402,7 +406,12 @@ export async function GET() {
       positionValue: parts.reduce((a, [x, w]) => a + w * x!.positionValue, 0), totalEquity: equity,
       returnRate: (equity - 10_000_000) / 10_000_000 * 100,
       totalTrades: parts.reduce((a, [x]) => a + x!.totalTrades, 0), totalRealizedPnl: parts.reduce((a, [x, w]) => a + w * x!.totalRealizedPnl, 0),
-      positions: [], lastTickAt: null, metrics: parts[0][0]!.metrics,
+      positions: [], lastTickAt: null,
+      // 조합의 거래 통계 = 구성 전략 거래를 비중만큼 축소해 합친 것. 현금 자리에 조합 평가액을 넣어 수익률이 맞게 나온다.
+      metrics: computeStrategyMetrics({
+        initial: 10_000_000, cash: equity, positions: [], currentPrices: priceByMarket,
+        trades: c.weights.flatMap(([id, w]) => tradesFromFile(TRADES_FILE_OF.get(id) ?? '').map((t) => ({ ...t, profitKrw: t.profitKrw * w }))),
+      }),
     });
   }
   // F1F2 는 2026-10-02 밤 은퇴(휴면 → 운영 제외). 데이터는 data/paper-trading 에 그대로.
