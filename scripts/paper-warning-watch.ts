@@ -12,13 +12,14 @@ import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import { getUpbitClient } from '@/lib/upbit-client';
+import { SIMPLE_DIRS } from '@/lib/paper-registry';
 import {
   fetchWarningNotices, readBlockList, writeBlockList, WARNING_DIR, WARNING_LOG_FILE,
 } from '@/lib/paper-warning';
 
 const FEE = 0.0005, SLIP = 0.0005;
 // F1F2(paper-trading)는 BTC 전용·다른 state 형태라 제외 — BTC 는 유의종목 대상이 될 일이 사실상 없다.
-const STRATEGY_DIRS = ['paper-f6', 'paper-f6v6', 'paper-f7', 'paper-f7sl', 'paper-f7p', 'paper-f7btc', 'paper-btctrend'];
+const STRATEGY_DIRS = ['paper-f6', 'paper-f6v6', 'paper-f7', 'paper-f7sl', 'paper-f7p', 'paper-f7btc', ...SIMPLE_DIRS];
 const CURSOR = path.join(WARNING_DIR, 'cursor.json');
 const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
 

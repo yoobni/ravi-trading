@@ -23,7 +23,7 @@ import {
 import {
   F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_INITIAL_CASH_KRW, F6V6_SL_PCT, F6V6_TRAIL_ACT, F6V6_TRAIL_GAP, F6V6_MAX_BARS,
 } from '@/lib/paper-f6v6-store';
-import { BT_STATE_FILE, BT_TRADES_FILE, BT_INITIAL_CASH_KRW, BT_SMA_DAYS } from '@/lib/paper-btctrend-store';
+import { SIMPLE_STRATEGIES } from '@/lib/paper-registry';
 import { F7_VARIANTS, F7_INITIAL_CASH_KRW, F7_POSITION_PCT, F7_MAX_CONCURRENT, f7Files } from '@/lib/paper-f7-store';
 import { strategyDescription } from '@/lib/paper-strategy-meta';
 import {
@@ -98,7 +98,7 @@ export async function GET() {
   const f1f2State = safeReadJson<any>(F1F2_STATE_FILE);
   const f6State = safeReadJson<any>(F6_STATE_FILE);
   const f6v6State = safeReadJson<any>(F6V6_STATE_FILE);
-  const btState = safeReadJson<any>(BT_STATE_FILE);
+  const simpleStates = SIMPLE_STRATEGIES.map((s) => ({ s, state: safeReadJson<any>(s.state) }));
   const f7States = F7_VARIANTS.map((v) => ({ v, state: safeReadJson<any>(f7Files(v).state) }));
 
   // Collect all markets to fetch ticker
@@ -107,7 +107,7 @@ export async function GET() {
   if (f6State?.positions) for (const p of f6State.positions) markets.add(p.market);
   if (f6v6State?.positions) for (const p of f6v6State.positions) markets.add(p.market);
   for (const { state } of f7States) for (const p of state?.positions || []) markets.add(p.market);
-  if (btState?.positions?.length) markets.add('KRW-BTC');
+  for (const { state } of simpleStates) for (const p of state?.positions || []) markets.add(p.market);
 
   const priceByMarket = new Map<string, number>();
   if (markets.size > 0) {
@@ -361,11 +361,12 @@ export async function GET() {
     });
   }
 
-  // BTC_TREND — BTC 일봉 > SMA50 이면 보유, 아래면 현금. 규칙은 paper-btctrend-store.ts.
-  if (btState) {
+  // 단순 구조 전략(추세 계열·ALT_SWING·USDT_Z·BTC_DIP) — src/lib/paper-registry.ts
+  for (const { s: def, state } of simpleStates) {
+    if (!state) continue;
     const positions = [];
     let positionValue = 0;
-    for (const pos of (btState.positions || [])) {
+    for (const pos of (state.positions || [])) {
       const cur = priceByMarket.get(pos.market) ?? pos.entryPrice;
       positionValue += pos.vol * cur;
       positions.push({
@@ -374,27 +375,16 @@ export async function GET() {
         daysHeld: daysSince(pos.entryDate),
       });
     }
-    const equity = btState.cash + positionValue;
-    const trades = tradesFromFile(BT_TRADES_FILE);
-    portfolioInputs.push({ initial: BT_INITIAL_CASH_KRW, equity, trades });
+    const equity = state.cash + positionValue;
+    const trades = tradesFromFile(def.trades);
+    portfolioInputs.push({ initial: def.initial, equity, trades });
     strategies.push({
-      id: 'BTC_TREND',
-      name: 'BTC_TREND (BTC 50일선 추세추종)',
-      description: strategyDescription('BTC_TREND'),
-      rule: `매일 KST 09:02 · BTC 일봉 종가 > SMA${BT_SMA_DAYS} 이면 보유, 아래면 현금 · 상태 바뀔 때만 시장가 · 자본 100%`,
-      capitalAlloc: BT_INITIAL_CASH_KRW,
-      cash: btState.cash,
-      positionValue,
-      totalEquity: equity,
-      returnRate: (equity - BT_INITIAL_CASH_KRW) / BT_INITIAL_CASH_KRW * 100,
-      totalTrades: btState.totalTrades || 0,
-      totalRealizedPnl: btState.totalRealizedPnl || 0,
-      positions,
-      lastTickAt: btState.lastTickAt || null,
-      metrics: computeStrategyMetrics({
-        initial: BT_INITIAL_CASH_KRW, cash: btState.cash,
-        positions: btState.positions || [], trades, currentPrices: priceByMarket,
-      }),
+      id: def.id, name: def.name, description: strategyDescription(def.id), rule: def.rule,
+      capitalAlloc: def.initial, cash: state.cash, positionValue, totalEquity: equity,
+      returnRate: (equity - def.initial) / def.initial * 100,
+      totalTrades: state.totalTrades || 0, totalRealizedPnl: state.totalRealizedPnl || 0,
+      positions, lastTickAt: state.lastTickAt || null,
+      metrics: computeStrategyMetrics({ initial: def.initial, cash: state.cash, positions: state.positions || [], trades, currentPrices: priceByMarket }),
     });
   }
 

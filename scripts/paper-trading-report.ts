@@ -36,7 +36,7 @@ import {
 } from '@/lib/paper-trading-store';
 import { F6_STATE_FILE, F6_TRADES_FILE, F6_TICKS_FILE, F6_INITIAL_CASH_KRW, F6_FEE, F6_MAX_BARS } from '@/lib/paper-f6-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_INITIAL_CASH_KRW, F6V6_FEE, F6V6_MAX_BARS } from '@/lib/paper-f6v6-store';
-import { BT_STATE_FILE, BT_TRADES_FILE, BT_TICKS_FILE, BT_INITIAL_CASH_KRW, BT_FEE } from '@/lib/paper-btctrend-store';
+import { SIMPLE_STRATEGIES } from '@/lib/paper-registry';
 import { F7_VARIANTS, F7_INITIAL_CASH_KRW, F7_FEE, f7Files } from '@/lib/paper-f7-store';
 import { f6StateAsOf } from '@/lib/paper-asof';
 import {
@@ -466,10 +466,10 @@ function judgeMain(
       const a = f6AsOf(f.state, f.ticks, f.trades, F7_FEE, v.maxBars);
       return { id: v.id, benchmark: false, started: !!a.anchor, initial: F7_INITIAL_CASH_KRW, cash: a.cash, positions: a.positions, trades: f6Trades(a) };
     }),
-    (() => {
-      const a = f6AsOf(BT_STATE_FILE, BT_TICKS_FILE, BT_TRADES_FILE, BT_FEE, 0);
-      return { id: 'BTC_TREND', benchmark: false, started: !!a.anchor, initial: BT_INITIAL_CASH_KRW, cash: a.cash, positions: a.positions, trades: f6Trades(a) };
-    })(),
+    ...SIMPLE_STRATEGIES.map((d) => {
+      const a = f6AsOf(d.state, d.ticks, d.trades, d.fee, 0);
+      return { id: d.id, benchmark: false, started: !!a.anchor, initial: d.initial, cash: a.cash, positions: a.positions, trades: f6Trades(a) };
+    }),
   ];
   const skipped = rows.filter((r) => !r.started).map((r) => r.id);
   const activeRows = rows.filter((r) => r.started);   // 그 시점에 tick/스냅샷이 없는 전략은 제외
