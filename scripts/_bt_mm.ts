@@ -49,6 +49,8 @@ function sim(ev: Ev[], c: Cfg) {
     if (!book || !tick) continue;
     const bb = book.b[0][0], ba = book.a[0][0];
     const sizeAt = (side: Lvl[], px: number) => { const l = side.find(x => Math.abs(x[0] - px) < tick / 2); return l ? l[1] : 0; };
+    // 표시 범위(상위 3호가) 안에 있을 때만 잔량으로 앞 대기량을 깎는다 — 범위 밖이면 정보가 없으므로 그대로 둔다(낙관 방지)
+    const inRange = (side: Lvl[], px: number) => { const ps = side.map(x => x[0]); return px <= Math.max(...ps) + tick / 2 && px >= Math.min(...ps) - tick / 2; };
 
     if (st === 'FLAT') {
       const spreadTicks = Math.round((ba - bb) / tick);
@@ -59,7 +61,7 @@ function sim(ev: Ev[], c: Cfg) {
     }
     if (st === 'BUY') {
       if (e.k === 1) {
-        if (c.mode === 'cap') ahead = Math.min(ahead, sizeAt(book.b, P));
+        if (c.mode === 'cap' && inRange(book.b, P)) ahead = Math.min(ahead, sizeAt(book.b, P));
         if (bb > P + tick / 2) { if (!outbidSince) outbidSince = e.t; if (e.t - outbidSince > c.requoteS * 1000) { st = 'FLAT'; continue; } }
         else outbidSince = 0;
       } else if (e.s === -1) {
@@ -82,7 +84,7 @@ function sim(ev: Ev[], c: Cfg) {
         if (held > c.maxS * 1000) { close(bb, 'mkt'); continue; }
         if (held > c.holdS * 1000 && sellPhase === 0 && ba < A - tick / 2) { A = ba; ahead = sizeAt(book.a, A); sellPhase = 1; }
       }
-      if (e.k === 1) { if (c.mode === 'cap') ahead = Math.min(ahead, sizeAt(book.a, A)); }
+      if (e.k === 1) { if (c.mode === 'cap' && inRange(book.a, A)) ahead = Math.min(ahead, sizeAt(book.a, A)); }
       else if (e.s === 1) {
         if (e.p! > A + tick / 2) { close(A, sellPhase ? 'join' : 'maker'); continue; }
         if (Math.abs(e.p! - A) < tick / 2) { const rem = e.v! - ahead; ahead = Math.max(0, ahead - e.v!); if (rem >= qty - 1e-12 || rem > 0 && (qty -= rem) <= 1e-12) { close(A, sellPhase ? 'join' : 'maker'); continue; } }
@@ -101,7 +103,9 @@ function sim(ev: Ev[], c: Cfg) {
     const m60 = at(tr.tFill + 60e3), m300 = at(tr.tFill + 300e3);
     tr.adv60 = m60 ? (m60 / tr.buy - 1) * 1e4 : NaN; tr.adv300 = m300 ? (m300 / tr.buy - 1) * 1e4 : NaN;
   }
-  return { trips, openInv: st === 'SELL' ? { P, held: 0 } : null };
+  const lastBid = book ? book.b[0][0] : 0;
+  const mtm = st === 'SELL' && book ? (c.sizeKrw / P * lastBid) * (1 - c.fee) - c.sizeKrw * (1 + c.fee) : 0;
+  return { trips, mtm };
 }
 
 const CODES = fs.existsSync(DIR) ? [...new Set(fs.readdirSync(DIR).filter(f => f.startsWith('trades_')).map(f => f.slice(7, -6)))] : [];
@@ -111,8 +115,8 @@ const mean = (a: number[]) => a.length ? a.reduce((x, y) => x + y, 0) / a.length
 const MODE = process.argv[2] || 'main';
 
 function row(code: string, ev: Ev[], c: Cfg, h: number) {
-  const { trips } = sim(ev, c);
-  const pnl = trips.reduce((s, t) => s + t.pnl, 0);
+  const { trips, mtm } = sim(ev, c);
+  const pnl = trips.reduce((s, t) => s + t.pnl, 0) + mtm;
   const how = (k: string) => trips.filter(t => t.how === k).length;
   const fillMin = mean(trips.map(t => (t.tFill - t.tBuy) / 60e3)), holdMin = mean(trips.map(t => (t.tSell - t.tFill) / 60e3));
   return { code, n: trips.length, pnl, perDay: pnl / h * 24, maker: how('maker'), join: how('join'), mkt: how('mkt'),
@@ -149,4 +153,10 @@ if (MODE === 'check') {
     for (const e of ev) { if (e.k === 1) bk = e; else if (bk) { n++; if (e.s === 1 && e.p! >= bk.a[0][0]) atAsk++; if (e.s === -1 && e.p! <= bk.b[0][0]) atBid++; } }
     console.log(code, `체결 ${n} · 매수공격이 매도호가 이상 ${atAsk} · 매도공격이 매수호가 이하 ${atBid}`);
   }
+}
+if (MODE === 'prepump') {
+  // SAND 급등(수집 시작 +135분, 64.9→79.7원) 이전만 — 전 코인 동일 구간
+  const t0 = Math.min(...CODES.map(c => load(c)[0]?.t ?? Infinity));
+  table('급등 이전 130분 · 기본', base, () => [t0, t0 + 130 * 60e3]);
+  table('급등 이전 130분 · strict', { ...base, mode: 'strict' }, () => [t0, t0 + 130 * 60e3]);
 }
