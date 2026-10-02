@@ -33,3 +33,15 @@ export const SIMPLE_STRATEGIES: SimpleStrategy[] = [
     state: BD_STATE_FILE, trades: BD_TRADES_FILE, ticks: BD_TICKS_FILE, initial: BD_INITIAL_CASH_KRW, fee: BD_FEE, stepMs: 4 * H },
 ];
 export const SIMPLE_DIRS = SIMPLE_STRATEGIES.map((s) => path.basename(path.dirname(s.state)));
+
+/**
+ * 조합 전략 — 2026-10-02 밤 10개 선정의 9·10번. 비중은 출발 시점 고정(리밸런싱 없음 = 슬리브별 보유).
+ *   COMBO_EQ4  : 통합 재검증에서 혼합 샤프 2.06 / MDD 8% (_bt_final_compare.ts)
+ *   COMBO_CORE : 배분 리서치 권고형 코어 70 + 위성 30 (_bt_alloc.ts) — F7 무스톱 은퇴로 ALT_SWING 이 위성 한 자리를 대신
+ */
+export const COMBOS: { id: string; name: string; weights: [string, number][] }[] = [
+  { id: 'COMBO_EQ4', name: 'COMBO_EQ4 (균등 4종)', weights: [['BTC_TREND', 0.25], ['ALT_SWING', 0.25], ['USDT_Z', 0.25], ['BTC_DIP', 0.25]] },
+  { id: 'COMBO_CORE', name: 'COMBO_CORE (코어 70 + 위성 30)', weights: [['BTC_TREND', 0.7], ['F7_sl', 0.1], ['F7_btc', 0.1], ['ALT_SWING', 0.1]] },
+];
+/** 대시보드·기록에서 숨기는 은퇴 전략 (데이터는 보존) */
+export const RETIRED = new Set(['F1F2_50', 'F1F2_100', 'F6', 'F6_v6', 'F7', 'F7_p']);

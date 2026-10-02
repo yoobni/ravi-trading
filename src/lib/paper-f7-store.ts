@@ -44,10 +44,9 @@ export interface F7Variant {
 
 const dirOf = (d: string) => path.resolve(process.cwd(), 'data', d);
 
+// 2026-10-02 밤 10개 선정: F7(무스톱)·F7_p 은퇴 — data/_archive/20261002/
 export const F7_VARIANTS: F7Variant[] = [
-  { id: 'F7',    name: 'F7 (TP 지정가 · 스톱 없음)',   dir: dirOf('paper-f7'),   tpPct: 6, slPct: null, maxBars: 18 },
   { id: 'F7_sl', name: 'F7_sl (F7 + 손절 −2%)',        dir: dirOf('paper-f7sl'), tpPct: 6, slPct: -2,   maxBars: 18 },
-  { id: 'F7_p',  name: 'F7_p (TP +4% · 2일)',          dir: dirOf('paper-f7p'),  tpPct: 4, slPct: null, maxBars: 12 },
   { id: 'F7_btc', name: 'F7_btc (F7 + BTC 50일선 필터)', dir: dirOf('paper-f7btc'), tpPct: 6, slPct: null, maxBars: 18, btc50: true },
 ];
 

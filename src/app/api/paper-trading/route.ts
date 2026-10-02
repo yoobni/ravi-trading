@@ -23,7 +23,7 @@ import {
 import {
   F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_INITIAL_CASH_KRW, F6V6_SL_PCT, F6V6_TRAIL_ACT, F6V6_TRAIL_GAP, F6V6_MAX_BARS,
 } from '@/lib/paper-f6v6-store';
-import { SIMPLE_STRATEGIES } from '@/lib/paper-registry';
+import { SIMPLE_STRATEGIES, COMBOS, RETIRED } from '@/lib/paper-registry';
 import { F7_VARIANTS, F7_INITIAL_CASH_KRW, F7_POSITION_PCT, F7_MAX_CONCURRENT, f7Files } from '@/lib/paper-f7-store';
 import { strategyDescription } from '@/lib/paper-strategy-meta';
 import {
@@ -387,6 +387,26 @@ export async function GET() {
       metrics: computeStrategyMetrics({ initial: def.initial, cash: state.cash, positions: state.positions || [], trades, currentPrices: priceByMarket }),
     });
   }
+
+  // ── 조합 전략(파생): 구성 전략들의 평가액을 고정 비중으로 합산. 모든 구성 전략이 같은 시각(2026-10-02 밤)에 1,000만으로
+  //    출발했으므로 비중 w 의 조합 평가액 = Σ w × 구성 평가액. 자체 매매는 없고 합계에서는 제외(benchmark — 이중 계산 방지).
+  const byId = new Map(strategies.map((x) => [x.id, x]));
+  for (const c of COMBOS) {
+    const parts = c.weights.map(([id, w]) => [byId.get(id), w] as const);
+    if (parts.some(([x]) => !x)) continue;
+    const equity = parts.reduce((a, [x, w]) => a + w * x!.totalEquity, 0);
+    strategies.push({
+      id: c.id, name: c.name, benchmark: true, description: strategyDescription(c.id),
+      rule: c.weights.map(([id, w]) => `${id} ${Math.round(w * 100)}%`).join(' + ') + ' · 구성 전략 평가액 합산(파생)',
+      capitalAlloc: 10_000_000, cash: parts.reduce((a, [x, w]) => a + w * x!.cash, 0),
+      positionValue: parts.reduce((a, [x, w]) => a + w * x!.positionValue, 0), totalEquity: equity,
+      returnRate: (equity - 10_000_000) / 10_000_000 * 100,
+      totalTrades: parts.reduce((a, [x]) => a + x!.totalTrades, 0), totalRealizedPnl: parts.reduce((a, [x, w]) => a + w * x!.totalRealizedPnl, 0),
+      positions: [], lastTickAt: null, metrics: parts[0][0]!.metrics,
+    });
+  }
+  // F1F2 는 2026-10-02 밤 은퇴(휴면 → 운영 제외). 데이터는 data/paper-trading 에 그대로.
+  for (let k = strategies.length - 1; k >= 0; k--) if (RETIRED.has(strategies[k].id)) strategies.splice(k, 1);
 
   // 합계는 실제 운영 전략만 (벤치마크 제외) — portfolioInputs 와 같은 모집단
   const operating = strategies.filter((x) => !x.benchmark);

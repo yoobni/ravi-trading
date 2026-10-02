@@ -34,6 +34,10 @@ export const STRATEGY_DESCRIPTIONS: Record<string, string> = {
     'F7과 전부 같고 손절 −2%만 추가(봉마감에 확인 후 시장가) · "손절이 값을 파괴한다"는 발견을 라이브로 판정하는 통제군',
   BTC_TREND:
     'BTC 하나만 · 일봉 종가가 50일 평균 위면 들고 아래면 현금 · 하루 1회 판단, 상태 바뀔 때만 매매 · 알트 생존편향과 무관한 독립 전략',
+  COMBO_EQ4:
+    'BTC_TREND · ALT_SWING · USDT_Z · BTC_DIP 을 25% 씩 — 성격이 다른 넷을 섞어 낙폭을 줄인 조합 (구성 전략 평가액으로 계산)',
+  COMBO_CORE:
+    'BTC_TREND 70% 를 코어로, F7_sl · F7_btc · ALT_SWING 을 10% 씩 위성으로 — 배분 리서치 권고형 (구성 전략 평가액으로 계산)',
   BTC_ENS:
     'BTC_TREND 개량판 · 이평선 5개(10~200일) 중 위에 있는 비율만큼 BTC 보유 · 판단이 하루 늦어도 성과가 덜 깎인다',
   ETH_TREND:

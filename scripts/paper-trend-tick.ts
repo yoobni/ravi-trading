@@ -45,7 +45,8 @@ const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
         const done = days.filter((d) => d.ts + DAY <= t);
         const sig = trendTarget(v, done.map((d) => d.close));
         if (!sig) { console.log(`[${v.id}] 일봉 부족`); continue; }
-        const isToday = t === todaySlot && now - t < 6 * 3600_000;
+        // 첫 실행(새 출발)은 늦었어도 지금 가격으로 시작한다
+        const isToday = t === todaySlot && (now - t < 6 * 3600_000 || st.lastTickTs == null);
         const dayBar = days.find((d) => d.ts <= t && t < d.ts + DAY);
         const px = isToday ? (live.get(v.market) ?? dayBar?.open) : dayBar?.open;
         if (px == null) continue;

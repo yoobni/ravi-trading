@@ -20,7 +20,7 @@ import {
 } from '@/lib/paper-trading-store';
 import { F6_STATE_FILE, F6_TRADES_FILE, F6_TICKS_FILE, F6_INITIAL_CASH_KRW } from '@/lib/paper-f6-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_INITIAL_CASH_KRW } from '@/lib/paper-f6v6-store';
-import { SIMPLE_STRATEGIES } from '@/lib/paper-registry';
+import { SIMPLE_STRATEGIES, RETIRED } from '@/lib/paper-registry';
 import { F7_VARIANTS, F7_INITIAL_CASH_KRW, f7Files } from '@/lib/paper-f7-store';
 import { strategyDescription } from '@/lib/paper-strategy-meta';
 
@@ -326,5 +326,5 @@ export async function GET() {
     out.push(f6Family(d.id, d.name, d.trades, d.ticks, d.initial, d.stepMs, started(d.state), now, d.state));
   }
 
-  return NextResponse.json({ strategies: out, now: new Date().toISOString() });
+  return NextResponse.json({ strategies: out.filter((x) => !RETIRED.has(x.id)), now: new Date().toISOString() });
 }
