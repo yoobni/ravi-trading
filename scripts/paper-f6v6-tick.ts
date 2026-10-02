@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * F6_v6 (TRAIL 12h) paper trading tick.
- * Cron: KST 09시·21시 +6분 (12h UTC창 00/12 마감 직후). 4h fetch → 12h 합성 → F6 신호 + 트레일.
+ * Cron: KST 09시·21시 정각 (+60초 지연, 12h UTC창 마감 직후). 4h fetch → 12h 합성 → F6 신호 + 트레일.
  */
 import 'dotenv/config';
 import { ensureNoGap } from '@/lib/paper-gap-guard';

@@ -2,7 +2,7 @@
 /**
  * F6 NEW_HIGH 42 paper trading tick.
  *
- * Cron: 매 4h KST (0,4,8,12,16,20시)
+ * Cron: 4h 봉마감 정각 KST 01/05/09/13/17/21시
  *
  * 흐름:
  *   1. Upbit 4h candle fetch (28 coin, 최근 50 bars)

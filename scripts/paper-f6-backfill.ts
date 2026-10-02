@@ -77,10 +77,10 @@ async function backfillVariant(spec: VariantSpec, barsByMarket: Map<string, BarL
   // tick은 KST 00:01, 04:01 ... 식 (4h 끝나고 1분 후). 시뮬에선 4h boundary로 처리.
   const tickPoints: number[] = [];
   // 가장 가까운 다음 4h boundary 찾기
-  // 2026-10-01: 라이브 크론을 봉마감 정렬(KST 01/05/09/13/17/21)로 옮기면서 백필 격자도 맞춘다.
-  //   안 맞추면 tick 커버리지 격자에 가짜 결손이 생긴다 (v7 에서 겪은 문제).
-  //   4h 는 epoch(UTC 자정)을 정확히 나누므로 floor 만으로 봉마감 경계가 나온다.
-  let cursor = Math.floor(startTs / FOUR_H_MS) * FOUR_H_MS + 1 * 60_000;
+  // 격자 = 라이브 크론: 4h 봉마감 정각(KST 01/05/09/13/17/21 = UTC 0/4/8…, epoch 를 4h 로 나누면 0).
+  //   2026-10-02 에 KST 00/04/…(봉마감 +3h)로 옮겼다가 같은 날 되돌렸다 — 판단 지연 3h 가 F6 성과를 1/4 로 깎는다(_bt_synth.ts).
+  const GRID_OFFSET = 0;
+  let cursor = Math.floor((startTs - GRID_OFFSET) / FOUR_H_MS) * FOUR_H_MS + GRID_OFFSET;
   while (cursor <= startTs) cursor += FOUR_H_MS;
   while (cursor < now) {
     tickPoints.push(cursor);

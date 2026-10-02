@@ -7,6 +7,7 @@
  *   F7     TP 지정가 +6% · 3일 시간청산 · 스톱 없음          ← 본 설계
  *   F7_sl  TP 지정가 +6% · 3일 시간청산 · 손절 −2%           ← 손절 유무 하나만 다른 통제군
  *   F7_p   TP 지정가 +4% · 2일 시간청산 · 스톱 없음          ← 고원의 다른 지점 (파라미터 전이 측정)
+ *   F7_btc F7 + BTC 가 50일선(4h 300봉 평균) 아래면 신규 진입 안 함 ← 2026-10-02 추가, 국면 탐색(_bt_regime.ts)의 유일한 생존 후보
  *
  * 신호·사이징은 F6 그대로(evaluateF6, 33%×max3). 변형 셋은 이 파일 하나의 설정 테이블로만 다르다 —
  * F6 계열처럼 store 를 복제하지 않는다(복제 탓에 60봉 버그를 7곳에서 고친 적이 있다).
@@ -32,12 +33,13 @@ export const F7_MAX_CONCURRENT = 3;
 export const F7_LOOKBACK_BARS = 42;
 
 export interface F7Variant {
-  id: 'F7' | 'F7_sl' | 'F7_p';
+  id: 'F7' | 'F7_sl' | 'F7_p' | 'F7_btc';
   name: string;
   dir: string;
   tpPct: number;
   slPct: number | null;   // null = 스톱 없음
   maxBars: number;        // 4h 봉 수 (6봉 = 1일)
+  btc50?: boolean;        // true = BTC 가 50일선 아래면 신규 진입 중단(청산은 그대로)
 }
 
 const dirOf = (d: string) => path.resolve(process.cwd(), 'data', d);
@@ -46,6 +48,7 @@ export const F7_VARIANTS: F7Variant[] = [
   { id: 'F7',    name: 'F7 (TP 지정가 · 스톱 없음)',   dir: dirOf('paper-f7'),   tpPct: 6, slPct: null, maxBars: 18 },
   { id: 'F7_sl', name: 'F7_sl (F7 + 손절 −2%)',        dir: dirOf('paper-f7sl'), tpPct: 6, slPct: -2,   maxBars: 18 },
   { id: 'F7_p',  name: 'F7_p (TP +4% · 2일)',          dir: dirOf('paper-f7p'),  tpPct: 4, slPct: null, maxBars: 12 },
+  { id: 'F7_btc', name: 'F7_btc (F7 + BTC 50일선 필터)', dir: dirOf('paper-f7btc'), tpPct: 6, slPct: null, maxBars: 18, btc50: true },
 ];
 
 export const f7Files = (v: F7Variant) => ({
@@ -129,3 +132,16 @@ export function evalF7Exit(
 /** 청산 기준가 → 체결가. TP(지정가)만 슬리피지가 없다. */
 export const f7FillPrice = (reason: 'TP' | 'SL' | 'TIME', price: number) =>
   reason === 'TP' ? price : price * (1 - F7_SLIPPAGE);
+
+/** BTC 50일선 근사 = 4h 300봉 종가 평균. */
+export const F7_BTC_SMA_BARS = 300;
+/**
+ * idx 봉(확정봉) 종가가 직전 300봉(자신 포함) 평균보다 낮으면 true. 데이터가 모자라면 false(필터 미적용).
+ * 백테스트(_bt_synth.ts btcBelow50)와 같은 정의 — 신호봉 시점의 BTC 로 판단한다.
+ */
+export function btcBelowSma(btcBars: { close: number }[], idx: number): boolean {
+  if (idx < F7_BTC_SMA_BARS - 1) return false;
+  let s = 0;
+  for (let j = idx - F7_BTC_SMA_BARS + 1; j <= idx; j++) s += btcBars[j].close;
+  return btcBars[idx].close < s / F7_BTC_SMA_BARS;
+}

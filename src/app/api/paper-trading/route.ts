@@ -341,7 +341,7 @@ export async function GET() {
       id: v.id,
       name: v.name,
       description: strategyDescription(v.id),
-      rule: `7d high break + 양봉 + vol z\u22650.5 \u2192 TP 지정가 +${v.tpPct}% / ${v.slPct == null ? '스톱 없음' : `손절 ${v.slPct}%(봉마감 시장가)`} / ${v.maxBars / 6}일 시간청산, ${F7_POSITION_PCT * 100}%\u00d7${F7_MAX_CONCURRENT}`,
+      rule: `7d high break + 양봉 + vol z\u22650.5 \u2192 TP 지정가 +${v.tpPct}% / ${v.slPct == null ? '스톱 없음' : `손절 ${v.slPct}%(봉마감 시장가)`} / ${v.maxBars / 6}일 시간청산, ${F7_POSITION_PCT * 100}%\u00d7${F7_MAX_CONCURRENT}${v.btc50 ? ' · BTC 50일선 아래면 진입 중단' : ''}`,
       capitalAlloc: F7_INITIAL_CASH_KRW,
       cash: state.cash,
       positionValue,

@@ -2,7 +2,7 @@
 /**
  * F7 계열(F7 · F7_sl · F7_p) paper trading tick — 세 변형을 한 번의 시세 조회로 함께 처리한다.
  *
- * Cron: KST 01/05/09/13/17/21시 +6분 (4h 봉마감 정렬). 규칙은 src/lib/paper-f7-store.ts 참고.
+ * Cron: 4h 봉마감 정각 KST 01/05/09/13/17/21시 (+30초 지연 — F6 와 시세 API 호출이 겹치지 않게). 규칙은 src/lib/paper-f7-store.ts 참고.
  *
  * 라이브 체결:
  *   TP   — 목표가(지정가가 걸려 있었다고 본다)
@@ -13,7 +13,7 @@ import { ensureNoGap } from '@/lib/paper-gap-guard';
 import { getUpbitClient } from '@/lib/upbit-client';
 import {
   F7_VARIANTS, F7_COINS, F7_FEE, F7_SLIPPAGE, F7_POSITION_PCT, F7_MAX_CONCURRENT, F7_LOOKBACK_BARS,
-  evaluateF7Signal, evalF7Exit, f7FillPrice, f7Files, withF7State, appendF7Trade, appendF7Tick,
+  evaluateF7Signal, evalF7Exit, btcBelowSma, F7_BTC_SMA_BARS, f7FillPrice, f7Files, withF7State, appendF7Trade, appendF7Tick,
   type BarLite, type F7Position, type F7ClosedTrade,
 } from '@/lib/paper-f7-store';
 
@@ -22,7 +22,16 @@ const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
 
 // 신호 lookback 42 + 시간청산 최대 18봉 → 200봉이면 넉넉하다 (요청당 상한 200).
 async function fetchBars(market: string, count = 200): Promise<BarLite[]> {
-  const candles = await getUpbitClient().getCandlesMinutes(240, market, count);
+  // 요청당 200봉 상한 — BTC 50일선(300봉)용으로 더 필요하면 to 로 이어 받는다.
+  const candles: any[] = [];
+  let to: string | undefined;
+  while (candles.length < count) {
+    const page = await getUpbitClient().getCandlesMinutes(240, market, Math.min(200, count - candles.length), to);
+    if (!page.length) break;
+    candles.push(...page);
+    to = (page[page.length - 1] as any).candle_date_time_utc;
+    if (page.length < 200) break;
+  }
   return candles.slice().reverse().map(c => ({
     // 시각 규약: ts 는 UTC ms. 표시는 kstISO() 로 +9h.
     ts: new Date((c as any).candle_date_time_utc + 'Z').getTime(),
@@ -47,7 +56,7 @@ async function tickerPrice(market: string): Promise<number | null> {
   const barsByMarket = new Map<string, BarLite[]>();
   for (const market of F7_COINS) {
     try {
-      barsByMarket.set(market, await fetchBars(market));
+      barsByMarket.set(market, await fetchBars(market, market === 'KRW-BTC' ? F7_BTC_SMA_BARS + 50 : 200));
       process.stdout.write('.');
       await new Promise(r => setTimeout(r, 150));
     } catch (e: any) { console.log(`\n[fetch FAIL] ${market}: ${e?.message || e}`); }
@@ -66,6 +75,13 @@ async function tickerPrice(market: string): Promise<number | null> {
     if (r.hit) pending.push({ market, ts: bars[confirmedIdx].ts, volZ: r.volZ! });
   }
   pending.sort((a, b) => a.ts - b.ts);
+
+  // F7_btc 국면 판정 — 방금 확정된 BTC 4h 봉이 50일선(300봉 평균) 아래면 그 변형은 신규 진입을 쉰다
+  const btc = barsByMarket.get('KRW-BTC') || [];
+  let btcIdx = -1;
+  for (let i = btc.length - 1; i >= 0; i--) { if (btc[i].ts + FOUR_H_MS <= now) { btcIdx = i; break; } }
+  const btcOff = btcIdx >= 0 && btcBelowSma(btc, btcIdx);
+  console.log(`[regime] BTC ${btcOff ? '50일선 아래 → F7_btc 신규진입 중단' : '50일선 위'} (봉 ${btc.length}개)`);
 
   for (const v of F7_VARIANTS) {
     await withF7State(v, async (state) => {
@@ -101,7 +117,7 @@ async function tickerPrice(market: string): Promise<number | null> {
 
       // ─── Entry (33% × max 3) ───
       let entries = 0;
-      for (const sig of pending) {
+      for (const sig of (v.btc50 && btcOff ? [] : pending)) {
         if (state.positions.length >= F7_MAX_CONCURRENT) break;
         if (state.positions.some(p => p.market === sig.market)) continue;
         const bars = barsByMarket.get(sig.market)!;
@@ -123,7 +139,7 @@ async function tickerPrice(market: string): Promise<number | null> {
       state.lastTickAt = new Date().toISOString();
       appendF7Tick(v, {
         ts: now, tickAt: kstISO(now),
-        signalsCount: pending.length, newEntries: entries, exits,
+        signalsCount: pending.length, newEntries: entries, exits, ...(v.btc50 ? { btcOff } : {}),
         openPositions: state.positions.length, cash: state.cash,
       });
       console.log(`[${v.id}] signals=${pending.length}, entries=${entries}, exits=${exits}, open=${state.positions.length}, cash=${state.cash.toFixed(0)}`);

@@ -38,7 +38,10 @@ async function fetch4h(market: string, count = 200): Promise<BarLite[]> {
   const now = Date.now();
   const startTs = state.lastTickTs || (now - 21 * 86400_000);
   console.log(`\n[F6_v6] backfill from ${kstISO(startTs)} → ${kstISO(now)}`);
-  let cursor = (Math.floor(startTs / WIN) + 1) * WIN; // 첫 12h창 마감시각
+  // 격자 = 라이브 크론: 12h 창 마감 정각(KST 09·21시 = UTC 00·12).
+  const GRID_OFFSET = 0;
+  let cursor = Math.floor((startTs - GRID_OFFSET) / WIN) * WIN + GRID_OFFSET;
+  while (cursor <= startTs) cursor += WIN;
   const tickPoints: number[] = [];
   while (cursor <= now) { tickPoints.push(cursor); cursor += WIN; }
   console.log(`  → ${tickPoints.length} ticks(12h) to backfill`);
