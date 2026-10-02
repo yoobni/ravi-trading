@@ -20,6 +20,7 @@ import {
 } from '@/lib/paper-trading-store';
 import { F6_STATE_FILE, F6_TRADES_FILE, F6_TICKS_FILE, F6_INITIAL_CASH_KRW } from '@/lib/paper-f6-store';
 import { F6V6_STATE_FILE, F6V6_TRADES_FILE, F6V6_TICKS_FILE, F6V6_INITIAL_CASH_KRW } from '@/lib/paper-f6v6-store';
+import { BT_STATE_FILE, BT_TRADES_FILE, BT_TICKS_FILE, BT_INITIAL_CASH_KRW } from '@/lib/paper-btctrend-store';
 import { F7_VARIANTS, F7_INITIAL_CASH_KRW, f7Files } from '@/lib/paper-f7-store';
 import { strategyDescription } from '@/lib/paper-strategy-meta';
 
@@ -319,6 +320,7 @@ export async function GET() {
       const f = f7Files(v);
       return { id: v.id, name: v.name, trades: f.trades, ticks: f.ticks, state: f.state, initial: F7_INITIAL_CASH_KRW, stepMs: 4 * HOUR };
     }),
+    { id: 'BTC_TREND', name: 'BTC_TREND (BTC 50일선 추세추종)', trades: BT_TRADES_FILE, ticks: BT_TICKS_FILE, state: BT_STATE_FILE, initial: BT_INITIAL_CASH_KRW, stepMs: DAY },
   ];
   for (const d of f6Defs) {
     out.push(f6Family(d.id, d.name, d.trades, d.ticks, d.initial, d.stepMs, started(d.state), now, d.state));

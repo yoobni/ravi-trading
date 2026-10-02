@@ -5,6 +5,7 @@
  */
 import 'dotenv/config';
 import { ensureNoGap } from '@/lib/paper-gap-guard';
+import { isWarningBlocked } from '@/lib/paper-warning';
 import { getUpbitClient } from '@/lib/upbit-client';
 import {
   F6V6_COINS, F6V6_FEE, F6V6_SLIPPAGE, F6V6_MAX_BARS, F6V6_TF_HOURS,
@@ -88,6 +89,7 @@ interface PendingSignal { market: string; ts: number; volZ: number; }
     const newEntries: F6V6Position[] = [];
     for (const sig of pending) {
       if (state.positions.length >= F6V6_MAX_CONCURRENT) break;
+      if (isWarningBlocked(sig.market)) { console.log(`[warning] ${sig.market} 유의 공지로 진입 차단`); continue; }
       if (state.positions.some(p => p.market === sig.market)) continue;
       const bars = bars12.get(sig.market)!;
       let entryRaw = bars[bars.length - 1].close;

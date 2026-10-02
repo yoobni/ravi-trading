@@ -16,6 +16,7 @@
  */
 import 'dotenv/config';
 import { ensureNoGap } from '@/lib/paper-gap-guard';
+import { isWarningBlocked } from '@/lib/paper-warning';
 import { getUpbitClient } from '@/lib/upbit-client';
 import {
   F6_COINS, F6_INITIAL_CASH_KRW, F6_FEE, F6_SLIPPAGE,
@@ -182,6 +183,7 @@ interface PendingSignal { market: string; ts: number; volZ: number; }
     const newEntries: F6Position[] = [];
     for (const sig of pending) {
       if (state.positions.length >= F6_MAX_CONCURRENT) break;
+      if (isWarningBlocked(sig.market)) { console.log(`[warning] ${sig.market} 유의 공지로 진입 차단`); continue; }
       const bars = barsByMarket.get(sig.market)!;
       // entry price: 현재 ticker 가격 (다음 bar open 근사) + slippage
       // 단순화: 신호 bar의 close 사용 (실제 운영 시 ticker 호출 가능). 또는 현재 시작된 bar의 open.
