@@ -35,13 +35,14 @@ export const F7_LOOKBACK_BARS = 42;
 export const F7_TP_PEN = 0.002;
 
 export interface F7Variant {
-  id: 'F7' | 'F7_sl' | 'F7_p' | 'F7_btc';
+  id: 'F7' | 'F7_sl' | 'F7_p' | 'F7_btc' | 'F7_sl_AI';
   name: string;
   dir: string;
   tpPct: number;
   slPct: number | null;   // null = 스톱 없음
   maxBars: number;        // 4h 봉 수 (6봉 = 1일)
   btc50?: boolean;        // true = BTC 가 50일선 아래면 신규 진입 중단(청산은 그대로)
+  aiFilter?: boolean;     // true = AI 리스크 판단(paper-ai-stance.ts)이 신규 진입 개수를 제한
 }
 
 const dirOf = (d: string) => path.resolve(process.cwd(), 'data', d);
@@ -50,6 +51,8 @@ const dirOf = (d: string) => path.resolve(process.cwd(), 'data', d);
 export const F7_VARIANTS: F7Variant[] = [
   { id: 'F7_sl', name: 'F7_sl (F7 + 손절 −2%)',        dir: dirOf('paper-f7sl'), tpPct: 6, slPct: -2,   maxBars: 18 },
   { id: 'F7_btc', name: 'F7_btc (F7 + BTC 50일선 필터)', dir: dirOf('paper-f7btc'), tpPct: 6, slPct: null, maxBars: 18, btc50: true },
+  // AI 쌍둥이 — F7_sl 과 같고 AI 리스크 판단이 신규 진입을 제한한다. F7_sl 이 대조군.
+  { id: 'F7_sl_AI', name: 'F7_sl_AI (F7_sl + AI 리스크)', dir: dirOf('paper-f7sl-ai'), tpPct: 6, slPct: -2, maxBars: 18, aiFilter: true },
 ];
 
 export const f7Files = (v: F7Variant) => ({

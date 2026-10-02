@@ -38,6 +38,10 @@ export const STRATEGY_DESCRIPTIONS: Record<string, string> = {
     'BTC_TREND · ALT_SWING · USDT_Z · BTC_DIP 을 25% 씩 — 성격이 다른 넷을 섞어 낙폭을 줄인 조합 (구성 전략 평가액으로 계산)',
   COMBO_CORE:
     'BTC_TREND 70% 를 코어로, F7_sl · F7_btc · ALT_SWING 을 10% 씩 위성으로 — 배분 리서치 권고형 (구성 전략 평가액으로 계산)',
+  BTC_TREND_AI:
+    'BTC_TREND 의 AI 쌍둥이 · Claude 가 뉴스·공지·매크로 일정을 읽고 위험하다고 판단하면 보유 비중 상한을 낮춘다 · BTC_TREND 와의 차이가 곧 AI 의 기여',
+  F7_sl_AI:
+    'F7_sl 의 AI 쌍둥이 · AI 가 caution 이면 신규 진입 1개까지, avoid 면 진입 금지 · F7_sl 과의 차이가 곧 AI 의 기여',
   BTC_ENS:
     'BTC_TREND 개량판 · 이평선 5개(10~200일) 중 위에 있는 비율만큼 BTC 보유 · 판단이 하루 늦어도 성과가 덜 깎인다',
   ETH_TREND:

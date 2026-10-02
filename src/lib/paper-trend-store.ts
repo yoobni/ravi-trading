@@ -18,12 +18,14 @@ export const TREND_SLIPPAGE = 0.0005;
 export const TREND_TICK_MINUTE = 2;           // KST 09:02 — 일봉 경계(09:00) 직후
 export const TREND_MAX_BARS = 0;              // 시간청산 없음 (paper-asof 호환)
 
-export interface TrendVariant { id: 'BTC_TREND' | 'BTC_ENS' | 'ETH_TREND'; name: string; market: string; mode: 'sma50' | 'ens'; dir: string }
+export interface TrendVariant { id: 'BTC_TREND' | 'BTC_ENS' | 'ETH_TREND' | 'BTC_TREND_AI'; name: string; market: string; mode: 'sma50' | 'ens'; dir: string; aiFilter?: boolean }
 const dirOf = (d: string) => path.resolve(process.cwd(), 'data', d);
 export const TREND_VARIANTS: TrendVariant[] = [
   { id: 'BTC_TREND', name: 'BTC_TREND (BTC 50일선)',       market: 'KRW-BTC', mode: 'sma50', dir: dirOf('paper-btctrend') },
   { id: 'BTC_ENS',   name: 'BTC_ENS (BTC 이평 앙상블)',    market: 'KRW-BTC', mode: 'ens',   dir: dirOf('paper-btcens') },
   { id: 'ETH_TREND', name: 'ETH_TREND (ETH 50일선)',       market: 'KRW-ETH', mode: 'sma50', dir: dirOf('paper-ethtrend') },
+  // AI 쌍둥이 — BTC_TREND 와 같고 AI 리스크 판단이 비중 상한을 건다(paper-ai-stance.ts). BTC_TREND 가 대조군.
+  { id: 'BTC_TREND_AI', name: 'BTC_TREND_AI (BTC 50일선 + AI 리스크)', market: 'KRW-BTC', mode: 'sma50', dir: dirOf('paper-btctrend-ai'), aiFilter: true },
 ];
 export const trendFiles = (v: TrendVariant) => ({
   state: path.join(v.dir, 'state.json'), trades: path.join(v.dir, 'trades.jsonl'), ticks: path.join(v.dir, 'ticks.jsonl'),

@@ -19,6 +19,7 @@ const TREND_RULE: Record<string, string> = {
   BTC_TREND: '매일 KST 09:02 · BTC 일봉 종가 > SMA50 이면 100% 보유, 아래면 현금 · 상태 바뀔 때만 시장가',
   BTC_ENS: '매일 KST 09:02 · BTC 종가가 SMA 10/20/50/100/200 중 k개 위 → 보유 비중 k/5 · 차액만 시장가',
   ETH_TREND: '매일 KST 09:02 · ETH 일봉 종가 > SMA50 이면 100% 보유, 아래면 현금',
+  BTC_TREND_AI: 'BTC_TREND 와 같고 AI 리스크 판단이 비중 상한을 건다(caution 50% · avoid 0%) · AI 는 줄이기만 가능',
 };
 export const SIMPLE_STRATEGIES: SimpleStrategy[] = [
   ...TREND_VARIANTS.map((v) => {

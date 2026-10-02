@@ -12,6 +12,7 @@ import { getUpbitClient } from '@/lib/upbit-client';
 import {
   TREND_VARIANTS, TREND_TICK_MINUTE, trendFiles, withTrendState, trendTarget, rebalanceTrend,
 } from '@/lib/paper-trend-store';
+import { readStance, stanceCap } from '@/lib/paper-ai-stance';
 
 const DAY = 86400_000;
 const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
@@ -50,7 +51,11 @@ const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
         const dayBar = days.find((d) => d.ts <= t && t < d.ts + DAY);
         const px = isToday ? (live.get(v.market) ?? dayBar?.open) : dayBar?.open;
         if (px == null) continue;
-        const { action, trade } = rebalanceTrend(v, st, sig.w, px, isToday ? now : dayBar!.ts, kstISO, new Date(isToday ? now : t).toISOString());
+        // AI 쌍둥이: 오늘(라이브) 판단에만 AI 상한 적용 — 지난 날 재생에는 그때의 판단을 알 수 없으므로 적용하지 않는다
+        const stance = v.aiFilter && isToday ? readStance() : null;
+        const w = stance ? Math.min(sig.w, stanceCap(stance)) : sig.w;
+        if (stance && w < sig.w) console.log(`[${v.id}] AI ${stance.level} → 비중 상한 ${(100 * w).toFixed(0)}% (${stance.reasons.join('; ')})`);
+        const { action, trade } = rebalanceTrend(v, st, w, px, isToday ? now : dayBar!.ts, kstISO, new Date(isToday ? now : t).toISOString());
         if (trade) fs.appendFileSync(trendFiles(v).trades, JSON.stringify(trade) + '\n');
         st.lastTickTs = isToday ? now : t; st.lastTickAt = new Date(st.lastTickTs).toISOString();
         fs.appendFileSync(trendFiles(v).ticks, JSON.stringify({
