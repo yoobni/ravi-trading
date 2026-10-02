@@ -13,7 +13,7 @@
  * F6 계열처럼 store 를 복제하지 않는다(복제 탓에 60봉 버그를 7곳에서 고친 적이 있다).
  *
  * 체결 모델 — 백테스트(_bt_execfree.ts)와 같다:
- *   TP   — 진입 직후 지정가 매도가 걸려 있다고 본다. 진입봉 이후 확정봉의 고가가 목표에 닿으면
+ *   TP   — 진입 직후 지정가 매도가 걸려 있다고 본다. 진입봉 이후 확정봉의 고가가 목표 × (1+0.2%) 를 넘으면
  *          **목표가 그대로** 체결(슬리피지 0, 수수료만). 진입봉 자체는 보지 않는다(진입 전 고가일 수 있음 → 보수적).
  *   SL   — (F7_sl 만) 확정봉 저가가 손절선에 닿으면 **그 봉 종가(=크론이 알아챈 시점 시장가)**에 청산.
  *          스톱 '가격'으로 정산하지 않는다 — 그게 이 통제군이 측정하려는 바로 그 비용이다.
@@ -31,6 +31,8 @@ export const F7_SLIPPAGE = 0.0005;
 export const F7_POSITION_PCT = 0.33;
 export const F7_MAX_CONCURRENT = 3;
 export const F7_LOOKBACK_BARS = 42;
+/** TP 지정가 체결 판정에 요구하는 관통폭. 2026-10-02 재출발부터 0.2% — '닿으면 체결'은 F7 을 120%→45% 로 부풀린다(축 G 반증). */
+export const F7_TP_PEN = 0.002;
 
 export interface F7Variant {
   id: 'F7' | 'F7_sl' | 'F7_p' | 'F7_btc';
@@ -121,7 +123,7 @@ export function evalF7Exit(
   const stop = v.slPct == null ? null : entryPrice * (1 + v.slPct / 100);
   for (let k = 0; k < bars.length; k++) {
     const b = bars[k];
-    if (b.high >= target) return { reason: 'TP', price: target, ts: b.ts };
+    if (b.high >= target * (1 + F7_TP_PEN)) return { reason: 'TP', price: target, ts: b.ts };
     if (stop != null && b.low <= stop) return { reason: 'SL', price: b.close, ts: b.ts };
     if (k + 1 >= v.maxBars) return { reason: 'TIME', price: b.close, ts: b.ts };
   }
