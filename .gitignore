@@ -51,3 +51,4 @@ next-env.d.ts
 
 # 내부 handoff (커밋 X)
 /HANDOFF.md
+__pycache__/
