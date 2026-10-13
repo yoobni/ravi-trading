@@ -12,7 +12,7 @@ import { getUpbitClient } from '@/lib/upbit-client';
 
 const H = 3600e3;
 const DIRS: [string, string][] = [['F7_sl', 'paper-f7sl'], ['F7_btc', 'paper-f7btc'], ['F7_sl_AI', 'paper-f7sl-ai'], ['BTC_TREND', 'paper-btctrend'], ['BTC_ENS', 'paper-btcens'],
-  ['ETH_TREND', 'paper-ethtrend'], ['BTC_TREND_AI', 'paper-btctrend-ai'], ['ALT_SWING', 'paper-altswing'], ['USDT_Z', 'paper-usdtz'], ['BTC_DIP', 'paper-btcdip'], ['RS_LAG', 'paper-rslag']];
+  ['ETH_TREND', 'paper-ethtrend'], ['BTC_TREND_AI', 'paper-btctrend-ai'], ['ALT_SWING', 'paper-altswing'], ['USDT_Z', 'paper-usdtz'], ['BTC_DIP', 'paper-btcdip'], ['RS_LAG', 'paper-rslag'], ['ALT_SWING_AI', 'paper-altswing-ai'], ['RS_LAG_AI', 'paper-rslag-ai']];
 const rd = (f: string) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const kst = (t: number) => new Date(t + 9 * H).toISOString().slice(5, 16).replace('T', ' ');
 

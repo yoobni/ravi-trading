@@ -12,7 +12,9 @@ import { GET } from '@/app/api/paper-trading/route';
 const EXPECT: Record<string, { tradesYr: number; perTrade: number | null; note: string }> = {
   USDT_Z: { tradesYr: 12, perTrade: 1.4, note: '2.26년 +48.6%, 28건' },
   BTC_DIP: { tradesYr: 26, perTrade: null, note: 'TP 평균 +2.9%, 시간청산 평균 −3.7%' },
-  RS_LAG: { tradesYr: 59, perTrade: 2.94, note: '하락장 몰림, 상폐 누락으로 과대(LUNA −99% 미포함)' },
+  RS_LAG: { tradesYr: 59, perTrade: 2.9, note: '엄격 슬롯 CAGR 12%(생존)/11%(상폐 포함) — 백테스트 +277% 는 슬롯 버그로 과대' },
+  RS_LAG_AI: { tradesYr: 59, perTrade: 2.9, note: 'RS_LAG 와 차이 = AI 거부권 기여' },
+  ALT_SWING_AI: { tradesYr: 189, perTrade: 1.2, note: 'ALT_SWING 과 차이 = AI 거부권 기여' },
   ALT_SWING: { tradesYr: 189, perTrade: 1.2, note: '시점별 유니버스, 진입가 민감' },
   F7_sl: { tradesYr: 265, perTrade: 0.66, note: '15m 현실 시뮬, 28코인 편향' },
   F7_sl_AI: { tradesYr: 265, perTrade: 0.66, note: 'F7_sl 과 차이 = AI 기여' },

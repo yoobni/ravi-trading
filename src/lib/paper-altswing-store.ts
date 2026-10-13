@@ -14,11 +14,19 @@ import fs from 'fs';
 import path from 'path';
 import { withFileLock } from './file-lock';
 
-export const AS_DIR = path.resolve(process.cwd(), 'data', 'paper-altswing');
-export const AS_STATE_FILE = path.join(AS_DIR, 'state.json');
-export const AS_TRADES_FILE = path.join(AS_DIR, 'trades.jsonl');
-export const AS_TICKS_FILE = path.join(AS_DIR, 'ticks.jsonl');
-export const AS_CACHE_DIR = path.join(AS_DIR, 'daily-cache');
+/** 쌍둥이 ALT_SWING_AI(AI 거부권 적용)는 같은 tick 을 PAPER_AI_TWIN=1 로 돌린다 — 디렉토리만 다르다 */
+export const AS_TWIN = process.env.PAPER_AI_TWIN === '1';
+export const asFiles = (twin = false) => {
+  const dir = path.resolve(process.cwd(), 'data', twin ? 'paper-altswing-ai' : 'paper-altswing');
+  return { dir, state: path.join(dir, 'state.json'), trades: path.join(dir, 'trades.jsonl'), ticks: path.join(dir, 'ticks.jsonl') };
+};
+const AS_F = asFiles(AS_TWIN);
+export const AS_DIR = AS_F.dir;
+export const AS_STATE_FILE = AS_F.state;
+export const AS_TRADES_FILE = AS_F.trades;
+export const AS_TICKS_FILE = AS_F.ticks;
+/** 일봉 캐시는 원본·쌍둥이·RS_LAG 가 공유(원본 09:03 tick 만 갱신) */
+export const AS_CACHE_DIR = path.resolve(process.cwd(), 'data', 'paper-altswing', 'daily-cache');
 
 export const AS_INITIAL_CASH_KRW = 10_000_000;
 export const AS_FEE = 0.0005;

@@ -17,10 +17,17 @@ import path from 'path';
 import { withFileLock } from './file-lock';
 import { asSlip, type DayBar } from './paper-altswing-store';
 
-export const RL_DIR = path.resolve(process.cwd(), 'data', 'paper-rslag');
-export const RL_STATE_FILE = path.join(RL_DIR, 'state.json');
-export const RL_TRADES_FILE = path.join(RL_DIR, 'trades.jsonl');
-export const RL_TICKS_FILE = path.join(RL_DIR, 'ticks.jsonl');
+/** 쌍둥이 RS_LAG_AI(AI 거부권 적용)는 같은 tick 을 PAPER_AI_TWIN=1 로 돌린다 — 디렉토리만 다르다 */
+export const RL_TWIN = process.env.PAPER_AI_TWIN === '1';
+export const rlFiles = (twin = false) => {
+  const dir = path.resolve(process.cwd(), 'data', twin ? 'paper-rslag-ai' : 'paper-rslag');
+  return { dir, state: path.join(dir, 'state.json'), trades: path.join(dir, 'trades.jsonl'), ticks: path.join(dir, 'ticks.jsonl') };
+};
+const RL_F = rlFiles(RL_TWIN);
+export const RL_DIR = RL_F.dir;
+export const RL_STATE_FILE = RL_F.state;
+export const RL_TRADES_FILE = RL_F.trades;
+export const RL_TICKS_FILE = RL_F.ticks;
 
 export const RL_INITIAL_CASH_KRW = 10_000_000;
 export const RL_FEE = 0.0005;

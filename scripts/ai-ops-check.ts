@@ -13,7 +13,8 @@ const CHECKS: [string, string, number][] = [
   ['F7_sl', 'paper-f7sl', 4 * H + 30 * M], ['F7_btc', 'paper-f7btc', 4 * H + 30 * M], ['F7_sl_AI', 'paper-f7sl-ai', 4 * H + 30 * M],
   ['BTC_TREND', 'paper-btctrend', 25 * H], ['BTC_ENS', 'paper-btcens', 25 * H], ['ETH_TREND', 'paper-ethtrend', 25 * H], ['BTC_TREND_AI', 'paper-btctrend-ai', 25 * H],
   ['ALT_SWING', 'paper-altswing', 25 * H], ['USDT_Z', 'paper-usdtz', 40 * M], ['BTC_DIP', 'paper-btcdip', 4 * H + 30 * M],
-  ['RS_LAG', 'paper-rslag', 25 * H],
+  ['RS_LAG', 'paper-rslag', 25 * H], ['ALT_SWING_AI', 'paper-altswing-ai', 25 * H], ['RS_LAG_AI', 'paper-rslag-ai', 25 * H],
+  ['RISK_DESK', 'ai-riskdesk', 2 * H + 30 * M],
   ['AI_TRADER', 'paper-aitrader', 45 * M],
 ];
 const CURSOR = D('ai-ops/log-cursor.json');
@@ -30,7 +31,7 @@ for (const [id, dir, allow] of CHECKS) {
   if (age > allow) issues.push(`${id}: 마지막 tick ${(age / H).toFixed(1)}h 전 (허용 ${(allow / H).toFixed(1)}h)`);
 }
 // cron.log 새 에러 (지난 점검 이후 추가된 부분만)
-for (const dir of ['paper-f7sl', 'paper-btctrend', 'paper-altswing', 'paper-usdtz', 'paper-btcdip', 'paper-rslag', 'paper-aitrader', 'paper-warnings']) {
+for (const dir of ['paper-f7sl', 'paper-btctrend', 'paper-altswing', 'paper-usdtz', 'paper-btcdip', 'paper-rslag', 'paper-aitrader', 'ai-riskdesk', 'paper-warnings']) {
   const f = path.join(D(dir), 'cron.log');
   if (!fs.existsSync(f)) continue;
   const size = fs.statSync(f).size; const from = Math.min(cur[f] ?? 0, size);

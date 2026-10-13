@@ -12,15 +12,23 @@ import fs from 'fs';
 import path from 'path';
 import { getUpbitClient } from '@/lib/upbit-client';
 import { isWarningBlocked } from '@/lib/paper-warning';
+import { vetoOf } from '@/lib/paper-ai-veto';
+import { readStance } from '@/lib/paper-ai-stance';
 import {
   AS_CACHE_DIR, AS_TRADES_FILE, AS_TICKS_FILE, AS_FEE, AS_TOP_N, AS_SLOTS, AS_POSITION_PCT, AS_TP_PCT, AS_TP_PEN,
-  AS_HOLD_DAYS, AS_MAX_LATE_MS, AS_STABLE, asSlip, breakout7, withAsState, type DayBar,
+  AS_HOLD_DAYS, AS_MAX_LATE_MS, AS_STABLE, AS_TWIN, asSlip, breakout7, withAsState, type DayBar,
 } from '@/lib/paper-altswing-store';
+const ID = AS_TWIN ? 'ALT_SWING_AI' : 'ALT_SWING';
 
 const DAY = 86400_000;
 const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function loadCache(markets: string[]): Map<string, DayBar[]> {
+  const out = new Map<string, DayBar[]>();
+  for (const m of markets) { try { out.set(m, JSON.parse(fs.readFileSync(path.join(AS_CACHE_DIR, `${m}.json`), 'utf8'))); } catch { /* 캐시 없음 */ } }
+  return out;
+}
 async function refreshCache(markets: string[]): Promise<Map<string, DayBar[]>> {
   if (!fs.existsSync(AS_CACHE_DIR)) fs.mkdirSync(AS_CACHE_DIR, { recursive: true });
   const out = new Map<string, DayBar[]>();
@@ -44,10 +52,11 @@ async function refreshCache(markets: string[]): Promise<Map<string, DayBar[]>> {
 
 (async () => {
   const now = Date.now();
-  console.log(`\n=== ALT_SWING paper tick @ ${kstISO(now).slice(0, 19)} ===`);
+  console.log(`\n=== ${ID} paper tick @ ${kstISO(now).slice(0, 19)} ===`);
   const markets = ((await getUpbitClient().getMarkets(false)) as any[]).map((x) => x.market as string)
     .filter((m) => m.startsWith('KRW-') && !AS_STABLE.has(m.slice(4)));
-  const all = await refreshCache(markets);
+  // 쌍둥이는 캐시를 갱신하지 않는다(원본 09:03 tick 이 갱신, 업비트 호출 중복 방지) — 읽기만
+  const all = AS_TWIN ? loadCache(markets) : await refreshCache(markets);
   // 확정봉만 (시작 + 24h ≤ now)
   const done = new Map([...all].map(([m, b]) => [m, b.filter((x) => x.ts + DAY <= now)]));
   const btc = done.get('KRW-BTC') || [];
@@ -80,7 +89,7 @@ async function refreshCache(markets: string[]): Promise<Map<string, DayBar[]>> {
           reason, recordedAt: new Date().toISOString(),
         }) + '\n');
         st.positions.splice(p, 1); exits++;
-        console.log(`[ALT_SWING] ${kstISO(j).slice(0, 10)} ${reason} ${pos.market} ${((px / pos.entryPrice - 1) * 100).toFixed(2)}% pnl=${profitKrw.toFixed(0)}`);
+        console.log(`[${ID}] ${kstISO(j).slice(0, 10)} ${reason} ${pos.market} ${((px / pos.entryPrice - 1) * 100).toFixed(2)}% pnl=${profitKrw.toFixed(0)}`);
       }
     }
 
@@ -96,29 +105,32 @@ async function refreshCache(markets: string[]): Promise<Map<string, DayBar[]>> {
     const cands = ranked.map((m) => [m, breakout7(done.get(m)!, idx(m, D))] as [string, number | null])
       .filter((x): x is [string, number] => x[1] != null).sort((a, b) => b[1] - a[1]);
     let entries = 0;
-    const why = !btcOn ? 'BTC 50일선 아래 — 진입 없음' : late > AS_MAX_LATE_MS ? `09:00 대비 ${(late / 60000).toFixed(0)}분 지연 — 진입 skip` : '';
+    const stance = AS_TWIN ? readStance() : null;
+    const why = !btcOn ? 'BTC 50일선 아래 — 진입 없음' : late > AS_MAX_LATE_MS ? `09:00 대비 ${(late / 60000).toFixed(0)}분 지연 — 진입 skip`
+      : stance?.level === 'avoid' ? `AI avoid — 진입 없음 (${stance.reasons.join('; ')})` : '';
     if (!why) {
       const tk = cands.length ? new Map(((await getUpbitClient().getTicker(cands.map(([m]) => m))) as any[]).map((t) => [t.market, t.trade_price as number])) : new Map();
       for (const [m, z] of cands) {
         if (st.positions.length >= AS_SLOTS) break;
         if (st.positions.some((p) => p.market === m)) continue;
         if (isWarningBlocked(m)) { console.log(`[warning] ${m} 진입 차단`); continue; }
+        if (AS_TWIN) { const v = vetoOf(m); if (v) { console.log(`[AI veto] ${m} ${v.kind} — ${v.reason}`); continue; } }
         const raw = tk.get(m); if (raw == null) continue;
         const ep = raw * (1 + asSlip(m));
         const used = st.cash * AS_POSITION_PCT; if (used < 5000) continue;
         st.cash -= used;
         st.positions.push({ market: m, entryTs: now, entryDate: kstISO(now), entryPrice: ep, vol: used * (1 - AS_FEE) / ep, cashUsed: used, entryBarsRemaining: 0, entryDayTs: D + DAY });
         entries++;
-        console.log(`[ALT_SWING] 진입 ${m} @${ep} z=${z.toFixed(2)} TP=${(ep * (1 + AS_TP_PCT / 100)).toFixed(4)}`);
+        console.log(`[${ID}] 진입 ${m} @${ep} z=${z.toFixed(2)} TP=${(ep * (1 + AS_TP_PCT / 100)).toFixed(4)}`);
       }
-    } else console.log(`[ALT_SWING] ${why}`);
+    } else console.log(`[${ID}] ${why}`);
 
     st.lastDayTs = D; st.lastTickTs = now; st.lastTickAt = new Date(now).toISOString();
     fs.appendFileSync(AS_TICKS_FILE, JSON.stringify({
       ts: now, tickAt: kstISO(now), btcOn, universe: ranked, signals: cands.map(([m, z]) => ({ m, z: +z.toFixed(2) })),
       newEntries: entries, exits, openPositions: st.positions.length, cash: st.cash, ...(why ? { skip: why } : {}),
     }) + '\n');
-    console.log(`[ALT_SWING] 유니버스 ${ranked.length} · 신호 ${cands.length} · 진입 ${entries} · 청산 ${exits} · 보유 ${st.positions.length}`);
+    console.log(`[${ID}] 유니버스 ${ranked.length} · 신호 ${cands.length} · 진입 ${entries} · 청산 ${exits} · 보유 ${st.positions.length}`);
   });
   process.exit(0);
-})().catch((e) => { console.error('[ALT_SWING tick FAIL]', e); process.exit(1); });
+})().catch((e) => { console.error(`[${ID} tick FAIL]`, e); process.exit(1); });

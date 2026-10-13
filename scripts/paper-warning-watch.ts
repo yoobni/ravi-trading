@@ -13,13 +13,14 @@ import fs from 'fs';
 import path from 'path';
 import { getUpbitClient } from '@/lib/upbit-client';
 import { SIMPLE_DIRS } from '@/lib/paper-registry';
+import { applyWarning, pruneBlockList } from '@/lib/paper-warning';
 import {
   fetchWarningNotices, readBlockList, writeBlockList, WARNING_DIR, WARNING_LOG_FILE,
 } from '@/lib/paper-warning';
 
 const FEE = 0.0005, SLIP = 0.0005;
 // F1F2(paper-trading)는 BTC 전용·다른 state 형태라 제외 — BTC 는 유의종목 대상이 될 일이 사실상 없다.
-const STRATEGY_DIRS = ['paper-f6', 'paper-f6v6', 'paper-f7', 'paper-f7sl', 'paper-f7p', 'paper-f7btc', 'paper-f7sl-ai', ...SIMPLE_DIRS];
+const STRATEGY_DIRS = ['paper-f6', 'paper-f6v6', 'paper-f7', 'paper-f7sl', 'paper-f7p', 'paper-f7btc', 'paper-f7sl-ai', 'paper-altswing-ai', 'paper-rslag-ai', ...SIMPLE_DIRS];
 const CURSOR = path.join(WARNING_DIR, 'cursor.json');
 const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
 
@@ -30,15 +31,14 @@ const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
   const fresh = notices.filter((n) => n.id > lastId);
 
   const block = readBlockList();
+  const pruned = pruneBlockList(block);          // 촉구 30일·해제 유지 7일 만료
   for (const n of fresh) {
-    for (const m of n.markets) {
-      if (n.kind === 'ON') block[m] = { since: n.at, title: n.title };
-      else delete block[m];
-    }
+    applyWarning(block, n);
     fs.mkdirSync(WARNING_DIR, { recursive: true });
     fs.appendFileSync(WARNING_LOG_FILE, JSON.stringify({ ...n, seenAt: new Date().toISOString() }) + '\n');
     console.log(`[warning] ${n.kind} ${n.markets.join(',')} — ${n.title}`);
   }
+  if (pruned && !fresh.length) writeBlockList(block);
   if (fresh.length) {
     writeBlockList(block);
     fs.writeFileSync(CURSOR, JSON.stringify({ lastId: Math.max(lastId, ...fresh.map((n) => n.id)) }));
@@ -50,7 +50,7 @@ const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
     const stateFile = path.resolve(process.cwd(), 'data', dir, 'state.json');
     if (!fs.existsSync(stateFile)) continue;
     const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-    const hit = (st.positions || []).filter((p: any) => block[p.market]);
+    const hit = (st.positions || []).filter((p: any) => block[p.market]?.liquidate !== false);   // 해제 후 유지 항목은 청산 안 함
     if (!hit.length) continue;
     for (const pos of hit) {
       let px: number | null = null;

@@ -12,6 +12,7 @@ import 'dotenv/config';
 import { ensureNoGap } from '@/lib/paper-gap-guard';
 import { isWarningBlocked } from '@/lib/paper-warning';
 import { readStance, stanceMaxNewEntries } from '@/lib/paper-ai-stance';
+import { vetoOf } from '@/lib/paper-ai-veto';
 import { getUpbitClient } from '@/lib/upbit-client';
 import {
   F7_VARIANTS, F7_COINS, F7_FEE, F7_SLIPPAGE, F7_POSITION_PCT, F7_MAX_CONCURRENT, F7_LOOKBACK_BARS,
@@ -126,6 +127,7 @@ async function tickerPrice(market: string): Promise<number | null> {
         if (entries >= maxNew) break;
         if (state.positions.length >= F7_MAX_CONCURRENT) break;
         if (isWarningBlocked(sig.market)) { console.log(`[warning] ${sig.market} 유의 공지로 진입 차단`); continue; }
+        if (v.aiFilter) { const vt = vetoOf(sig.market); if (vt) { console.log(`[${v.id}] AI veto ${sig.market} ${vt.kind} — ${vt.reason}`); continue; } }
         if (state.positions.some(p => p.market === sig.market)) continue;
         const bars = barsByMarket.get(sig.market)!;
         const raw = (await tickerPrice(sig.market)) ?? bars[bars.length - 1].close;

@@ -12,11 +12,14 @@ import fs from 'fs';
 import path from 'path';
 import { getUpbitClient } from '@/lib/upbit-client';
 import { isWarningBlocked } from '@/lib/paper-warning';
+import { vetoOf } from '@/lib/paper-ai-veto';
+import { readStance } from '@/lib/paper-ai-stance';
 import { AS_CACHE_DIR, AS_STABLE, type DayBar } from '@/lib/paper-altswing-store';
 import {
   RL_TRADES_FILE, RL_TICKS_FILE, RL_FEE, RL_TOP_N, RL_SLOTS, RL_POSITION_PCT, RL_BTC7_MAX, RL_LOOKBACK, RL_LAG_THR,
-  RL_TP_PCT, RL_TP_PEN, RL_HOLD_BARS, RL_MAX_LATE_MS, rlSlip, retK, withRlState,
+  RL_TP_PCT, RL_TP_PEN, RL_HOLD_BARS, RL_MAX_LATE_MS, RL_TWIN, rlSlip, retK, withRlState,
 } from '@/lib/paper-rslag-store';
+const ID = RL_TWIN ? 'RS_LAG_AI' : 'RS_LAG';
 
 const DAY = 86400_000;
 const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
@@ -54,7 +57,7 @@ async function fillStale(all: Map<string, DayBar[]>, markets: string[], D: numbe
 
 (async () => {
   const now = Date.now();
-  console.log(`\n=== RS_LAG paper tick @ ${kstISO(now).slice(0, 19)} ===`);
+  console.log(`\n=== ${ID} paper tick @ ${kstISO(now).slice(0, 19)} ===`);
   const D = Math.floor(now / DAY) * DAY - DAY;               // 어제(가장 최근 확정일, UTC 00:00 = KST 09:00 경계)
   const markets = ((await getUpbitClient().getMarkets(false)) as any[]).map((x) => x.market as string)
     .filter((m) => m.startsWith('KRW-') && !AS_STABLE.has(m.slice(4)));
@@ -92,7 +95,7 @@ async function fillStale(all: Map<string, DayBar[]>, markets: string[], D: numbe
           reason, recordedAt: new Date().toISOString(),
         }) + '\n');
         st.positions.splice(p, 1); exits++;
-        console.log(`[RS_LAG] ${kstISO(j).slice(0, 10)} ${reason} ${pos.market} ${((px / pos.entryPrice - 1) * 100).toFixed(2)}% pnl=${profitKrw.toFixed(0)}`);
+        console.log(`[${ID}] ${kstISO(j).slice(0, 10)} ${reason} ${pos.market} ${((px / pos.entryPrice - 1) * 100).toFixed(2)}% pnl=${profitKrw.toFixed(0)}`);
       }
     }
 
@@ -111,8 +114,10 @@ async function fillStale(all: Map<string, DayBar[]>, markets: string[], D: numbe
     }).filter((x): x is [string, number] => x[1] != null && x[1] <= -RL_LAG_THR).sort((a, b) => a[1] - b[1]);
 
     let entries = 0;
+    const stance = RL_TWIN ? readStance() : null;
     const why = !regimeOn ? `BTC 7일 ${btc7 == null ? '?' : (btc7 * 100).toFixed(1) + '%'} > −5% — 진입 없음`
-      : late > RL_MAX_LATE_MS ? `09:00 대비 ${(late / 60000).toFixed(0)}분 지연 — 진입 skip` : '';
+      : late > RL_MAX_LATE_MS ? `09:00 대비 ${(late / 60000).toFixed(0)}분 지연 — 진입 skip`
+      : stance?.level === 'avoid' ? `AI avoid — 진입 없음 (${stance.reasons.join('; ')})` : '';
     if (!why && cands.length) {
       const tk = new Map(((await getUpbitClient().getTicker(cands.map(([m]) => m))) as any[]).map((t) => [t.market, t.trade_price as number]));
       // 평가액 = 현금 + 보유분(어제 종가)
@@ -123,15 +128,16 @@ async function fillStale(all: Map<string, DayBar[]>, markets: string[], D: numbe
         if (st.positions.length >= RL_SLOTS) break;
         if (st.positions.some((p) => p.market === m)) continue;
         if (isWarningBlocked(m)) { console.log(`[warning] ${m} 진입 차단`); continue; }
+        if (RL_TWIN) { const v = vetoOf(m); if (v) { console.log(`[AI veto] ${m} ${v.kind} — ${v.reason}`); continue; } }
         const raw = tk.get(m); if (raw == null) continue;
         const ep = raw * (1 + rlSlip(m));
         const used = Math.min(st.cash, equity * RL_POSITION_PCT); if (used < 5000) continue;
         st.cash -= used;
         st.positions.push({ market: m, entryTs: now, entryDate: kstISO(now), entryPrice: ep, vol: used * (1 - RL_FEE) / ep, cashUsed: used, entryBarsRemaining: 0, entryDayTs: D + DAY, score: +s.toFixed(4) });
         entries++;
-        console.log(`[RS_LAG] 진입 ${m} @${ep} 점수 ${(s * 100).toFixed(1)}%p TP=${(ep * (1 + RL_TP_PCT / 100)).toFixed(4)}`);
+        console.log(`[${ID}] 진입 ${m} @${ep} 점수 ${(s * 100).toFixed(1)}%p TP=${(ep * (1 + RL_TP_PCT / 100)).toFixed(4)}`);
       }
-    } else if (why) console.log(`[RS_LAG] ${why}`);
+    } else if (why) console.log(`[${ID}] ${why}`);
 
     st.lastDayTs = D; st.lastTickTs = now; st.lastTickAt = new Date(now).toISOString();
     fs.appendFileSync(RL_TICKS_FILE, JSON.stringify({
@@ -139,7 +145,7 @@ async function fillStale(all: Map<string, DayBar[]>, markets: string[], D: numbe
       signals: cands.map(([m, s]) => ({ m, s: +s.toFixed(4) })),
       newEntries: entries, exits, openPositions: st.positions.length, cash: st.cash, ...(why ? { skip: why } : {}),
     }) + '\n');
-    console.log(`[RS_LAG] BTC 7일 ${btc7 == null ? '?' : (btc7 * 100).toFixed(1)}% · 유니버스 ${ranked.length} · 후보 ${cands.length} · 진입 ${entries} · 청산 ${exits} · 보유 ${st.positions.length}`);
+    console.log(`[${ID}] BTC 7일 ${btc7 == null ? '?' : (btc7 * 100).toFixed(1)}% · 유니버스 ${ranked.length} · 후보 ${cands.length} · 진입 ${entries} · 청산 ${exits} · 보유 ${st.positions.length}`);
   });
   process.exit(0);
-})().catch((e) => { console.error('[RS_LAG tick FAIL]', e); process.exit(1); });
+})().catch((e) => { console.error(`[${ID} tick FAIL]`, e); process.exit(1); });
