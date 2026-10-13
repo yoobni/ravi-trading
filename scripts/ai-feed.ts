@@ -46,7 +46,7 @@ const kst = (ts: number) => new Date(ts + 9 * 3600e3).toISOString().slice(5, 16)
   const from = sinceH != null ? now - sinceH * 3600e3 : lastRun || now - 6 * 3600e3;
   const all: any[] = fs.readFileSync(STORE, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const show = all.filter((h) => h.ts >= from).sort((a, b) => b.ts - a.ts).slice(0, 80);
-  fs.writeFileSync(CURSOR, JSON.stringify({ lastRun: now }));
+  if (sinceH == null) fs.writeFileSync(CURSOR, JSON.stringify({ lastRun: now }));   // --since-hours 조회(AI 트레이더 등)는 감시관 커서를 건드리지 않는다
   console.log(`## 헤드라인 ${show.length}건 (${kst(from)} 이후, KST)`);
   for (const h of show) console.log(`- [${kst(h.ts)} ${h.src}] ${h.title}`);
   // 업비트 경고 공지(최근 48h) + 차단 목록

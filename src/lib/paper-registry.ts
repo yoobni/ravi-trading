@@ -8,6 +8,8 @@ import { TREND_VARIANTS, trendFiles, TREND_INITIAL_CASH_KRW, TREND_FEE } from '.
 import { AS_STATE_FILE, AS_TRADES_FILE, AS_TICKS_FILE, AS_INITIAL_CASH_KRW, AS_FEE } from './paper-altswing-store';
 import { UZ_STATE_FILE, UZ_TRADES_FILE, UZ_TICKS_FILE, UZ_INITIAL_CASH_KRW, UZ_FEE } from './paper-usdtz-store';
 import { BD_STATE_FILE, BD_TRADES_FILE, BD_TICKS_FILE, BD_INITIAL_CASH_KRW, BD_FEE } from './paper-btcdip-store';
+import { RL_STATE_FILE, RL_TRADES_FILE, RL_TICKS_FILE, RL_INITIAL_CASH_KRW, RL_FEE } from './paper-rslag-store';
+import { AT_STATE_FILE, AT_TRADES_FILE, AT_TICKS_FILE, AT_INITIAL_CASH_KRW, AT_FEE } from './paper-aitrader-store';
 
 export interface SimpleStrategy {
   id: string; name: string; rule: string;
@@ -32,8 +34,13 @@ export const SIMPLE_STRATEGIES: SimpleStrategy[] = [
     state: UZ_STATE_FILE, trades: UZ_TRADES_FILE, ticks: UZ_TICKS_FILE, initial: UZ_INITIAL_CASH_KRW, fee: UZ_FEE, stepMs: 15 * 60_000 },
   { id: 'BTC_DIP', name: 'BTC_DIP (BTC 4h 급락 흡수)', rule: '4h 마다 직전가 −3% 매수 지정가 → +3% 매도 지정가 · 72시간 시간청산 · 무스톱 · 100%',
     state: BD_STATE_FILE, trades: BD_TRADES_FILE, ticks: BD_TICKS_FILE, initial: BD_INITIAL_CASH_KRW, fee: BD_FEE, stepMs: 4 * H },
+  { id: 'RS_LAG', name: 'RS_LAG (BTC 급락 주간 낙오 알트)', rule: '매일 KST 09:08 · BTC 7일 ≤ −5% 일 때만 · 거래대금 상위 20 알트 중 14일 수익이 BTC 보다 15%p 이상 뒤처진 순 · TP +10% 지정가 · 7일 · 무스톱 · 평가액 10%×3',
+    state: RL_STATE_FILE, trades: RL_TRADES_FILE, ticks: RL_TICKS_FILE, initial: RL_INITIAL_CASH_KRW, fee: RL_FEE, stepMs: DAY },
+  { id: 'AI_TRADER', name: 'AI_TRADER (Opus 재량 매매)', rule: '15분마다 Claude Opus 가 시세·호가·뉴스·함대 신호를 보고 직접 매수·매도 · 종목당 35%·6종목·일 손실 −5% 매수정지·거래대금 50억 하한은 코드가 강제 · 시장가 = 호가창 VWAP, 지정가 = 0.2% 관통',
+    state: AT_STATE_FILE, trades: AT_TRADES_FILE, ticks: AT_TICKS_FILE, initial: AT_INITIAL_CASH_KRW, fee: AT_FEE, stepMs: 15 * 60_000 },
 ];
-export const SIMPLE_DIRS = SIMPLE_STRATEGIES.map((s) => path.basename(path.dirname(s.state)));
+/** 유의 공지 감시(paper-warning-watch)가 강제 청산하는 대상 — AI_TRADER 는 제외(자기 장부를 MCP 로만 만지고, 유의 코인 매수는 코드가 막는다) */
+export const SIMPLE_DIRS = SIMPLE_STRATEGIES.filter((s) => s.id !== 'AI_TRADER').map((s) => path.basename(path.dirname(s.state)));
 
 /**
  * 조합 전략 — 2026-10-02 밤 10개 선정의 9·10번. 비중은 출발 시점 고정(리밸런싱 없음 = 슬리브별 보유).

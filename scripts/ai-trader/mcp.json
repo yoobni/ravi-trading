@@ -1,0 +1,1 @@
+{ "mcpServers": { "upbit-paper": { "command": "/Users/goyubin/Desktop/Ravi/project/upbit-trading/node_modules/.bin/tsx", "args": ["/Users/goyubin/Desktop/Ravi/project/upbit-trading/scripts/ai-trader/mcp-server.ts"] } } }
