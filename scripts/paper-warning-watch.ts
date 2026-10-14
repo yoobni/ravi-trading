@@ -50,7 +50,7 @@ const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
     const stateFile = path.resolve(process.cwd(), 'data', dir, 'state.json');
     if (!fs.existsSync(stateFile)) continue;
     const st = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-    const hit = (st.positions || []).filter((p: any) => block[p.market]?.liquidate !== false);   // 해제 후 유지 항목은 청산 안 함
+    const hit = (st.positions || []).filter((p: any) => { const e = block[p.market]; return !!e && e.liquidate !== false; });   // 해제 후 유지 항목은 청산 안 함
     if (!hit.length) continue;
     for (const pos of hit) {
       let px: number | null = null;
