@@ -229,6 +229,16 @@ export async function cancelOrder(id: string): Promise<OrderResult> {
   });
 }
 
+/** KST 날짜가 바뀌었으면 하루 카운터(일 손실 한도 기준 평가액)를 새로 연다 — 주문이 없는 날도 portfolio 조회 때 굴린다 */
+export async function touchDay(): Promise<void> {
+  await withAtState(async (st) => {
+    const key = kstDay(Date.now());
+    if (st.day && st.day.key === key) return;
+    const px = await prices([...st.positions.map((p) => p.market), ...st.orders.map((o) => o.market)]);
+    rollDay(st, equityOf(st, px));
+  });
+}
+
 /** 대기 지정가 주문 체결 판정 — 접수 이후 1분봉, 0.2% 관통. MCP 도구 호출 전과 체결 크론에서 부른다 */
 export async function processFills(): Promise<string[]> {
   return withAtState(async (st) => {

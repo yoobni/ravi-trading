@@ -18,7 +18,7 @@ import { readBlockList } from '@/lib/paper-warning';
 import { SIMPLE_STRATEGIES } from '@/lib/paper-registry';
 import {
   AT_DIR, AT_JOURNAL_FILE, AT_PLAYBOOK_FILE, AT_TRADES_FILE, AT_LIMITS, readAtState, prices, equityOf,
-  placeBuy, placeSell, cancelOrder, processFills, kstNow,
+  placeBuy, placeSell, cancelOrder, processFills, touchDay, kstNow,
 } from '@/lib/paper-aitrader-store';
 
 const kst = (ts: number) => new Date(ts + 9 * 3600e3).toISOString().slice(5, 16).replace('T', ' ');
@@ -30,6 +30,7 @@ const server = new McpServer({ name: 'upbit-paper', version: '1.0.0' });
 
 server.tool('portfolio', '현금·보유·평가손익·대기 주문·오늘 손익·위험 한도 사용량·최근 체결 10건. 매 판단의 첫 호출.', {}, async () => {
   const fills = await processFills().catch((e) => [`체결 처리 실패 ${e?.message || e}`]);
+  await touchDay().catch(() => null);
   const st = readAtState();
   if (!st) return text('장부 없음(첫 실행) — 현금 10,000,000원, 보유 없음.');
   const px = await prices([...st.positions.map((p) => p.market), ...st.orders.map((o) => o.market)]);
