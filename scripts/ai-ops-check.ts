@@ -15,7 +15,7 @@ const CHECKS: [string, string, number][] = [
   ['ALT_SWING', 'paper-altswing', 25 * H], ['USDT_Z', 'paper-usdtz', 40 * M], ['BTC_DIP', 'paper-btcdip', 4 * H + 30 * M],
   ['RS_LAG', 'paper-rslag', 25 * H], ['ALT_SWING_AI', 'paper-altswing-ai', 25 * H], ['RS_LAG_AI', 'paper-rslag-ai', 25 * H],
   ['RISK_DESK', 'ai-riskdesk', 2 * H + 30 * M],
-  ['AI_TRADER', 'paper-aitrader', 45 * M],
+  ['AI_TRADER', 'paper-aitrader', 4 * H + 30 * M],   // AI 가 최대 4시간 쉴 수 있다(run.ts 4h 상한)
 ];
 const CURSOR = D('ai-ops/log-cursor.json');
 const now = Date.now();

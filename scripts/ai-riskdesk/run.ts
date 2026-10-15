@@ -98,7 +98,9 @@ function mentions(title: string, cands: Set<string>, names: Record<string, { ko:
   }
   const tick: any = { ts: now, tickAt: kst(now), headlines: rows.length, fresh: fresh.length, flagged: flagged.length, candidates: cands.size, llm: false, vetoes: 0, marketWide: null, costUsd: 0 };
   const finish = (msg: string) => {
-    if (!dry) { for (const h of fresh) seen[h.k] = now; fs.writeFileSync(SEEN_FILE, JSON.stringify(seen)); }
+    // LLM 실패·JSON 불량이면 걸린 헤드라인은 seen 에 넣지 않는다 → 다음 시간에 재판정(재난 헤드라인을 영구히 버리지 않기 위해)
+    const retry = new Set(tick.error ? flagged.map((f) => f.h.k) : []);
+    if (!dry) { for (const h of fresh) if (!retry.has(h.k)) seen[h.k] = now; fs.writeFileSync(SEEN_FILE, JSON.stringify(seen)); }
     fs.appendFileSync(path.join(D, 'ticks.jsonl'), JSON.stringify(tick) + '\n');
     fs.writeFileSync(path.join(D, 'state.json'), JSON.stringify({ lastTickTs: now, lastTickAt: new Date(now).toISOString(), ...tick }, null, 2));
     console.log(`[riskdesk ${kst(now)}] ${msg}`);

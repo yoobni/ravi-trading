@@ -46,7 +46,7 @@ server.tool('portfolio', '현금·보유·평가손익·대기 주문·오늘 �
     `### 최근 체결`,
     ...readLines(AT_TRADES_FILE, 10).map((l) => { const t = JSON.parse(l); return `- ${kst(t.exitTs)} ${t.market} ${t.reason} ${t.profitRate.toFixed(2)}% ${Math.round(t.profitKrw).toLocaleString()}원`; }),
     `누적 실현 ${fmt(st.totalRealizedPnl)}원 · 청산 ${st.totalTrades}건`,
-    `한도: 종목당 ${AT_LIMITS.maxCoinPct * 100}% · 최대 ${AT_LIMITS.maxPositions}종목 · 일 주문 ${AT_LIMITS.maxOrdersPerDay} · 일 손실 ${AT_LIMITS.dailyLossStop * 100}% 시 매수 금지 · 24h 거래대금 50억 미만 매수 금지 · 수수료 0.05% · 시장가는 호가창 VWAP · 지정가는 0.2% 관통 시 체결`,
+    `한도: 종목당 ${AT_LIMITS.maxCoinPct * 100}% · 최대 ${AT_LIMITS.maxPositions}종목 · 일 주문 ${AT_LIMITS.maxOrdersPerDay} · 일 손실 ${AT_LIMITS.dailyLossStop * 100}% 시 매수 금지 · 24h 거래대금 ${AT_LIMITS.minValue24hKrw / 1e8}억 미만 매수 금지 · 수수료 0.05% · 시장가는 호가창 VWAP · 지정가는 0.2% 관통 시 체결`,
   ];
   return text(lines.filter(Boolean).join('\n'));
 });
@@ -182,7 +182,7 @@ server.tool('schedule_next', '다음 실행까지 쉴 시간(분)을 네가 정�
 }, async ({ minutes, reason }) => {
   fs.mkdirSync(AT_DIR, { recursive: true });
   const nextTs = Date.now() + minutes * 60_000;
-  fs.writeFileSync(NEXT_FILE, JSON.stringify({ nextTs, minutes, reason, setAt: kstNow() }));
+  fs.writeFileSync(NEXT_FILE, JSON.stringify({ nextTs, minutes, reason, setTs: Date.now(), setAt: kstNow() }));
   return text(`다음 실행 ≈ ${kst(nextTs)} KST (${minutes}분 뒤) — ${reason}`);
 });
 

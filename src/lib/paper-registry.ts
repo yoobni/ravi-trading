@@ -5,10 +5,10 @@
  */
 import path from 'path';
 import { TREND_VARIANTS, trendFiles, TREND_INITIAL_CASH_KRW, TREND_FEE } from './paper-trend-store';
-import { AS_STATE_FILE, AS_TRADES_FILE, AS_TICKS_FILE, AS_INITIAL_CASH_KRW, AS_FEE, asFiles } from './paper-altswing-store';
+import { AS_INITIAL_CASH_KRW, AS_FEE, asFiles } from './paper-altswing-store';
 import { UZ_STATE_FILE, UZ_TRADES_FILE, UZ_TICKS_FILE, UZ_INITIAL_CASH_KRW, UZ_FEE } from './paper-usdtz-store';
 import { BD_STATE_FILE, BD_TRADES_FILE, BD_TICKS_FILE, BD_INITIAL_CASH_KRW, BD_FEE } from './paper-btcdip-store';
-import { RL_STATE_FILE, RL_TRADES_FILE, RL_TICKS_FILE, RL_INITIAL_CASH_KRW, RL_FEE, rlFiles } from './paper-rslag-store';
+import { RL_INITIAL_CASH_KRW, RL_FEE, rlFiles } from './paper-rslag-store';
 import { AT_STATE_FILE, AT_TRADES_FILE, AT_TICKS_FILE, AT_INITIAL_CASH_KRW, AT_FEE } from './paper-aitrader-store';
 
 export interface SimpleStrategy {
@@ -29,13 +29,13 @@ export const SIMPLE_STRATEGIES: SimpleStrategy[] = [
     return { id: v.id, name: v.name, rule: TREND_RULE[v.id], state: f.state, trades: f.trades, ticks: f.ticks, initial: TREND_INITIAL_CASH_KRW, fee: TREND_FEE, stepMs: DAY };
   }),
   { id: 'ALT_SWING', name: 'ALT_SWING (알트 일봉 스윙)', rule: '매일 KST 09:03 · 거래대금 상위 20 알트 · 7일 신고가+양봉+거래대금z≥0.5 · BTC>SMA50 일 때만 · TP +6% 지정가 · 3일 · 무스톱 · 33%×3',
-    state: AS_STATE_FILE, trades: AS_TRADES_FILE, ticks: AS_TICKS_FILE, initial: AS_INITIAL_CASH_KRW, fee: AS_FEE, stepMs: DAY },
+    state: asFiles(false).state, trades: asFiles(false).trades, ticks: asFiles(false).ticks, initial: AS_INITIAL_CASH_KRW, fee: AS_FEE, stepMs: DAY },   // env(PAPER_AI_TWIN)와 무관하게 원본
   { id: 'USDT_Z', name: 'USDT_Z (테더 프리미엄)', rule: '15분마다 · 업비트 USDT ÷ 장중 환율 프리미엄의 30일 z ≤ −2 매수 / ≥ 0 매도 · 디페그 가드(USDCUSDT>1.005)',
     state: UZ_STATE_FILE, trades: UZ_TRADES_FILE, ticks: UZ_TICKS_FILE, initial: UZ_INITIAL_CASH_KRW, fee: UZ_FEE, stepMs: 15 * 60_000 },
   { id: 'BTC_DIP', name: 'BTC_DIP (BTC 4h 급락 흡수)', rule: '4h 마다 직전가 −3% 매수 지정가 → +3% 매도 지정가 · 72시간 시간청산 · 무스톱 · 100%',
     state: BD_STATE_FILE, trades: BD_TRADES_FILE, ticks: BD_TICKS_FILE, initial: BD_INITIAL_CASH_KRW, fee: BD_FEE, stepMs: 4 * H },
   { id: 'RS_LAG', name: 'RS_LAG (BTC 급락 주간 낙오 알트)', rule: '매일 KST 09:08 · BTC 7일 ≤ −5% 일 때만 · 거래대금 상위 20 알트 중 14일 수익이 BTC 보다 15%p 이상 뒤처진 순 · TP +10% 지정가 · 7일 · 무스톱 · 평가액 10%×3',
-    state: RL_STATE_FILE, trades: RL_TRADES_FILE, ticks: RL_TICKS_FILE, initial: RL_INITIAL_CASH_KRW, fee: RL_FEE, stepMs: DAY },
+    state: rlFiles(false).state, trades: rlFiles(false).trades, ticks: rlFiles(false).ticks, initial: RL_INITIAL_CASH_KRW, fee: RL_FEE, stepMs: DAY },
   { id: 'ALT_SWING_AI', name: 'ALT_SWING_AI (ALT_SWING + AI 거부권)', rule: 'ALT_SWING 과 같고 AI 리스크 데스크가 코인 고유 재난(디페그·해킹·지급불능·체인정지·소송·상폐위험) 뉴스로 거부한 코인은 사지 않는다 · 시장 전체 avoid 면 진입 없음',
     state: asFiles(true).state, trades: asFiles(true).trades, ticks: asFiles(true).ticks, initial: AS_INITIAL_CASH_KRW, fee: AS_FEE, stepMs: DAY },
   { id: 'RS_LAG_AI', name: 'RS_LAG_AI (RS_LAG + AI 거부권)', rule: 'RS_LAG 와 같고 AI 거부권 적용 — 폭락 코인을 사는 규칙이라 LUNA 형 재난(공지 전 뉴스) 차단이 핵심',

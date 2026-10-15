@@ -26,13 +26,16 @@ const lastTick = (() => { try { const l = fs.readFileSync(path.join(D, 'ticks.js
 const next = readJson(NEXT_FILE);
 const force = process.argv.includes('--now');
 if (!force && lastTick) {
-  const due = next?.nextTs && next.nextTs > lastTick.ts ? next.nextTs : lastTick.ts + 15 * 60_000;
+  // 예약이 유효한 조건: 직전 실행 **중**에 설정된 것(실행 시작 ≈ 기록 시각 − 소요 시간). 그 전 실행의 예약은 버린다.
+  const runStart = lastTick.ts - (lastTick.durationMs || 0) - 60_000;
+  const valid = !!(next?.nextTs && next.setTs >= runStart);
+  const due = valid ? next.nextTs : lastTick.ts + 15 * 60_000;
   const now = Date.now();
   let wake = now >= due - 30_000 || now - lastTick.ts > 4 * 3600_000;
-  let why = wake ? (next?.nextTs > lastTick.ts ? `예정(${next.minutes}분: ${next.reason})` : '기본 15분') : '';
+  let why = wake ? (valid ? `예정(${next.minutes}분: ${next.reason})` : '기본 15분') : '';
   if (!wake && lastTick.btcPrice) {
     try {
-      const r = JSON.parse(require('child_process').execFileSync('curl', ['-s', 'https://api.upbit.com/v1/ticker?markets=KRW-BTC'], { encoding: 'utf8', timeout: 10_000 }));
+      const r = JSON.parse(spawnSync('curl', ['-s', 'https://api.upbit.com/v1/ticker?markets=KRW-BTC'], { encoding: 'utf8', timeout: 10_000 }).stdout);
       const chg = r[0].trade_price / lastTick.btcPrice - 1;
       if (Math.abs(chg) >= 0.02) { wake = true; why = `BTC ${(chg * 100).toFixed(2)}% 급변 → 예정보다 일찍`; }
     } catch { /* 시세 실패 시 예정대로 */ }

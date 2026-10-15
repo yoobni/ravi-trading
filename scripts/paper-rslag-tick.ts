@@ -62,6 +62,8 @@ async function fillStale(all: Map<string, DayBar[]>, markets: string[], D: numbe
   const markets = ((await getUpbitClient().getMarkets(false)) as any[]).map((x) => x.market as string)
     .filter((m) => m.startsWith('KRW-') && !AS_STABLE.has(m.slice(4)));
   fs.mkdirSync(AS_CACHE_DIR, { recursive: true });
+  // ALT_SWING 09:03 tick 의 캐시 갱신이 끝날 때까지 기다린다(최대 6분) — 도중에 읽으면 유니버스가 어긋나고 fillStale 이 중복 호출을 낸다
+  { const t0 = Date.now(); while (Date.now() - t0 < 6 * 60_000) { try { if (JSON.parse(fs.readFileSync(path.join(AS_CACHE_DIR, '.refreshed.json'), 'utf8')).dayTs === D) break; } catch { /* 아직 */ } await sleep(15_000); } }
   const all = loadCache();
   await fillStale(all, markets, D);
   const listed = new Set(markets);
@@ -73,6 +75,16 @@ async function fillStale(all: Map<string, DayBar[]>, markets: string[], D: numbe
   await withRlState(async (st) => {
     // ── 청산 재생 (보유 종목만, 확정봉 기준)
     let exits = 0;
+    // 상장폐지 등으로 시세가 끊긴 보유분: 마지막 캐시 종가로 강제 청산(없으면 0) — 낙오 코인을 사는 전략이라 특히 중요
+    for (const pos of [...st.positions]) {
+      if (listed.has(pos.market) && (done.get(pos.market) || []).length) continue;
+      const b = all.get(pos.market) || []; const px = b.length ? b[b.length - 1].close * (1 - rlSlip(pos.market)) : 0;
+      const got = pos.vol * px * (1 - RL_FEE); const profitKrw = got - pos.cashUsed;
+      st.cash += got; st.totalTrades += 1; st.totalRealizedPnl += profitKrw;
+      fs.appendFileSync(RL_TRADES_FILE, JSON.stringify({ market: pos.market, entryTs: pos.entryTs, exitTs: now, entryDate: pos.entryDate, exitDate: kstISO(now), entryPrice: pos.entryPrice, exitPrice: px, profitRate: (px - pos.entryPrice) / pos.entryPrice * 100, profitKrw, reason: 'DELIST', recordedAt: new Date().toISOString() }) + '\n');
+      st.positions.splice(st.positions.indexOf(pos), 1); exits++;
+      console.log(`[${ID}] 시세 없음(상폐?) ${pos.market} 강제 청산 @${px} pnl=${profitKrw.toFixed(0)}`);
+    }
     const startDay = st.lastDayTs == null ? D : st.lastDayTs + DAY;
     for (let j = startDay; j <= D; j += DAY) {
       for (let p = st.positions.length - 1; p >= 0; p--) {

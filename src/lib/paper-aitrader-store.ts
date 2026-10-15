@@ -158,7 +158,7 @@ export async function placeBuy(market: string, krw: number, type: 'market' | 'li
     if (isWarningBlocked(market)) return rej('유의종목 지정 코인 — 매수 금지');
     const m24 = await market24h(market).catch(() => null);
     if (!m24?.price) return rej('시세 조회 실패 또는 없는 마켓');
-    if (m24.value < AT_LIMITS.minValue24hKrw) return rej(`24h 거래대금 ${(m24.value / 1e8).toFixed(0)}억 < 50억 — 체결 현실성 하한`);
+    if (m24.value < AT_LIMITS.minValue24hKrw) return rej(`24h 거래대금 ${(m24.value / 1e8).toFixed(0)}억 < ${AT_LIMITS.minValue24hKrw / 1e8}억 — 체결 현실성 하한`);
     const held = [...new Set([...st.positions.map((p) => p.market), ...st.orders.map((o) => o.market), market])];
     const px = await prices(held);
     const eq = equityOf(st, px); rollDay(st, eq);
@@ -241,16 +241,43 @@ export async function touchDay(): Promise<void> {
 }
 
 /** 대기 지정가 주문 체결 판정 — 접수 이후 1분봉, 0.2% 관통. MCP 도구 호출 전과 체결 크론에서 부른다 */
+/** 1분봉을 lastCheckTs 까지 거슬러 받는다(요청당 200봉) — 맥 수면 등으로 200분 넘게 비면 한 페이지로는 체결을 놓친다 */
+async function minuteBarsSince(market: string, sinceTs: number, now: number) {
+  const acc: { ts: number; high: number; low: number }[] = [];
+  let to: string | undefined;
+  for (let page = 0; page < 12; page++) {                       // 최대 2,400분 ≈ 40시간
+    const raw = (await getUpbitClient().getCandlesMinutes(1, market, 200, to)) as any[];
+    if (!raw.length) break;
+    for (const x of raw) acc.push({ ts: new Date(x.candle_date_time_utc + 'Z').getTime(), high: x.high_price, low: x.low_price });
+    const oldest = raw[raw.length - 1];
+    if (new Date(oldest.candle_date_time_utc + 'Z').getTime() <= sinceTs) break;
+    to = oldest.candle_date_time_utc; await sleep(120);
+  }
+  return acc.filter((b) => b.ts >= sinceTs - 60_000 && b.ts + 60_000 <= now).sort((a, b) => a.ts - b.ts);
+}
+
+/** 대기 지정가 주문 체결 판정 — 접수 이후 1분봉, 0.2% 관통. MCP 도구 호출 전과 체결 크론에서 부른다.
+ *  유의종목 지정 코인은 여기서 함께 처리한다: 대기 매수는 취소·환불, 보유분은 시장가 강제 청산(다른 전략의 warning-watch 와 같은 규칙). */
 export async function processFills(): Promise<string[]> {
   return withAtState(async (st) => {
     const out: string[] = []; const now = Date.now();
+    // 유의종목: 보유분 강제 청산 + 그 종목 주문 전부 취소
+    for (const p of [...st.positions]) {
+      if (!isWarningBlocked(p.market)) continue;
+      let px: number | null = null; try { px = (await prices([p.market])).get(p.market) ?? null; } catch { /* 다음 주기 */ }
+      if (px == null) continue;
+      for (const o of st.orders.filter((x) => x.market === p.market)) { if (o.side === 'buy') st.cash += o.reservedKrw; st.orders.splice(st.orders.indexOf(o), 1); }
+      const r = reducePosition(st, p.market, p.vol, px * (1 - 0.0005), 'WARNING:유의종목 지정 강제 청산');
+      out.push(`유의종목 강제 청산 ${p.market} @${px} 실현 ${Math.round(r.profitKrw)}원`); audit({ warningLiquidate: p.market, px });
+    }
     for (const o of [...st.orders]) {
+      if (o.side === 'buy' && isWarningBlocked(o.market)) {   // 접수 뒤 유의 지정된 코인의 대기 매수는 취소
+        st.cash += o.reservedKrw; st.orders.splice(st.orders.indexOf(o), 1);
+        out.push(`유의종목 지정으로 대기 매수 취소 ${o.id} ${o.market}`); audit({ cancel: o.id, why: 'warning' }); continue;
+      }
       let filled = false, fillTs = 0;
       try {
-        const bars = ((await getUpbitClient().getCandlesMinutes(1, o.market, 200)) as any[])
-          .map((x) => ({ ts: new Date(x.candle_date_time_utc + 'Z').getTime(), high: x.high_price, low: x.low_price }))
-          .filter((b) => b.ts >= o.lastCheckTs - 60_000 && b.ts >= o.createdTs - 0 && b.ts + 60_000 <= now)
-          .sort((a, b) => a.ts - b.ts);
+        const bars = await minuteBarsSince(o.market, Math.max(o.createdTs, o.lastCheckTs), now);
         for (const b of bars) {
           if (b.ts < o.createdTs) continue;               // 접수 분 이전 봉은 제외
           if (o.side === 'buy' ? b.low <= o.price * (1 - AT_LIMIT_PEN) : b.high >= o.price * (1 + AT_LIMIT_PEN)) { filled = true; fillTs = b.ts; break; }

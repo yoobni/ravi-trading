@@ -24,6 +24,16 @@ const DAY = 86400_000;
 const kstISO = (ts: number) => new Date(ts + 9 * 3600_000).toISOString();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const REFRESHED = path.join(AS_CACHE_DIR, '.refreshed.json');
+/** 원본 09:03 tick 이 캐시를 다 쓴 뒤 남기는 마커 — 쌍둥이·RS_LAG 는 이걸 보고 기다린다(갱신 도중 읽으면 유니버스가 어긋난다) */
+export async function waitCacheRefreshed(dayTs: number, maxMs: number): Promise<boolean> {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    try { const m = JSON.parse(fs.readFileSync(REFRESHED, 'utf8')); if (m.dayTs === dayTs) return true; } catch { /* 아직 */ }
+    await sleep(15_000);
+  }
+  return false;
+}
 function loadCache(markets: string[]): Map<string, DayBar[]> {
   const out = new Map<string, DayBar[]>();
   for (const m of markets) { try { out.set(m, JSON.parse(fs.readFileSync(path.join(AS_CACHE_DIR, `${m}.json`), 'utf8'))); } catch { /* 캐시 없음 */ } }
@@ -56,7 +66,10 @@ async function refreshCache(markets: string[]): Promise<Map<string, DayBar[]>> {
   const markets = ((await getUpbitClient().getMarkets(false)) as any[]).map((x) => x.market as string)
     .filter((m) => m.startsWith('KRW-') && !AS_STABLE.has(m.slice(4)));
   // 쌍둥이는 캐시를 갱신하지 않는다(원본 09:03 tick 이 갱신, 업비트 호출 중복 방지) — 읽기만
+  const expectD = Math.floor(now / DAY) * DAY - DAY;
+  if (AS_TWIN && !(await waitCacheRefreshed(expectD, 8 * 60_000))) console.log('[cache] 원본 갱신 마커 없음(8분 대기) — 캐시를 그대로 읽는다. 유니버스가 원본과 다를 수 있음');
   const all = AS_TWIN ? loadCache(markets) : await refreshCache(markets);
+  if (!AS_TWIN) fs.writeFileSync(REFRESHED, JSON.stringify({ dayTs: expectD, ts: Date.now() }));
   // 확정봉만 (시작 + 24h ≤ now)
   const done = new Map([...all].map(([m, b]) => [m, b.filter((x) => x.ts + DAY <= now)]));
   const btc = done.get('KRW-BTC') || [];
@@ -67,6 +80,16 @@ async function refreshCache(markets: string[]): Promise<Map<string, DayBar[]>> {
   await withAsState(async (st) => {
     const startDay = st.lastDayTs == null ? D : st.lastDayTs + DAY;
     let exits = 0;
+    // 상장폐지 등으로 시세가 끊긴 보유분: 마지막 캐시 종가로 강제 청산(없으면 0) — 평단으로 영원히 들고 있지 않게
+    for (const pos of [...st.positions]) {
+      if (done.has(pos.market) && (done.get(pos.market) || []).length) continue;
+      let px = 0; try { const b: DayBar[] = JSON.parse(fs.readFileSync(path.join(AS_CACHE_DIR, `${pos.market}.json`), 'utf8')); px = b.length ? b[b.length - 1].close * (1 - asSlip(pos.market)) : 0; } catch { /* 캐시 없음 → 0 */ }
+      const got = pos.vol * px * (1 - AS_FEE); const profitKrw = got - pos.cashUsed;
+      st.cash += got; st.totalTrades += 1; st.totalRealizedPnl += profitKrw;
+      fs.appendFileSync(AS_TRADES_FILE, JSON.stringify({ market: pos.market, entryTs: pos.entryTs, exitTs: now, entryDate: pos.entryDate, exitDate: kstISO(now), entryPrice: pos.entryPrice, exitPrice: px, profitRate: (px - pos.entryPrice) / pos.entryPrice * 100, profitKrw, reason: 'DELIST', recordedAt: new Date().toISOString() }) + '\n');
+      st.positions.splice(st.positions.indexOf(pos), 1); exits++;
+      console.log(`[${ID}] 시세 없음(상폐?) ${pos.market} 강제 청산 @${px} pnl=${profitKrw.toFixed(0)}`);
+    }
     for (let j = startDay; j <= D; j += DAY) {
       // ── 청산 (j 일 확정봉 기준)
       for (let p = st.positions.length - 1; p >= 0; p--) {
