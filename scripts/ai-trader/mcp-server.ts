@@ -176,6 +176,16 @@ server.tool('journal_write', '이번 판단 기록. 매 실행 끝에 반드시 
   return text('기록됨');
 });
 
+const NEXT_FILE = path.join(AT_DIR, 'next-run.json');
+server.tool('schedule_next', '다음 실행까지 쉴 시간(분)을 네가 정한다. 5~240. 안 부르면 15분. 급한 국면(발표 직후·급변·지정가 체결 임박)은 짧게, 조용한 새벽·주말은 길게 — 실행마다 비용이 든다. 단 BTC 가 마지막 실행 대비 ±2% 넘게 움직이면 예정과 무관하게 깨어난다. 매 실행 마지막에 부를 것.', {
+  minutes: z.number().int().min(5).max(240), reason: z.string().min(3).max(200),
+}, async ({ minutes, reason }) => {
+  fs.mkdirSync(AT_DIR, { recursive: true });
+  const nextTs = Date.now() + minutes * 60_000;
+  fs.writeFileSync(NEXT_FILE, JSON.stringify({ nextTs, minutes, reason, setAt: kstNow() }));
+  return text(`다음 실행 ≈ ${kst(nextTs)} KST (${minutes}분 뒤) — ${reason}`);
+});
+
 server.tool('playbook_read', '내 매매 원칙 문서(스스로 다듬는 규칙집).', {}, async () => text(fs.existsSync(AT_PLAYBOOK_FILE) ? fs.readFileSync(AT_PLAYBOOK_FILE, 'utf8') : '(비어 있음)'));
 server.tool('playbook_update', '매매 원칙 문서를 통째로 교체. 언제든 고칠 수 있으나 무엇을 왜 바꿨는지 문서 안에 적을 것. 6,000자 이내.', { text: z.string().min(50).max(6000) }, async ({ text: t }) => {
   fs.mkdirSync(AT_DIR, { recursive: true });

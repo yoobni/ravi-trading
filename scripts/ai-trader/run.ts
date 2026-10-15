@@ -19,6 +19,28 @@ fs.writeFileSync(LOCK, String(process.pid));
 const cleanup = () => { try { if (fs.readFileSync(LOCK, 'utf8') === String(process.pid)) fs.unlinkSync(LOCK); } catch { /* */ } };
 process.on('exit', cleanup);
 
+// ── 실행 여부: AI 가 schedule_next 로 정한 시각(없으면 마지막 실행 +15분) 이전이면 건너뛴다. 단 BTC 가 ±2% 넘게 움직였거나 4시간 넘게 안 돌았으면 깨운다.
+const NEXT_FILE = path.join(D, 'next-run.json');
+const readJson = (f: string) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+const lastTick = (() => { try { const l = fs.readFileSync(path.join(D, 'ticks.jsonl'), 'utf8').trim().split('\n'); return JSON.parse(l[l.length - 1]); } catch { return null; } })();
+const next = readJson(NEXT_FILE);
+const force = process.argv.includes('--now');
+if (!force && lastTick) {
+  const due = next?.nextTs && next.nextTs > lastTick.ts ? next.nextTs : lastTick.ts + 15 * 60_000;
+  const now = Date.now();
+  let wake = now >= due - 30_000 || now - lastTick.ts > 4 * 3600_000;
+  let why = wake ? (next?.nextTs > lastTick.ts ? `예정(${next.minutes}분: ${next.reason})` : '기본 15분') : '';
+  if (!wake && lastTick.btcPrice) {
+    try {
+      const r = JSON.parse(require('child_process').execFileSync('curl', ['-s', 'https://api.upbit.com/v1/ticker?markets=KRW-BTC'], { encoding: 'utf8', timeout: 10_000 }));
+      const chg = r[0].trade_price / lastTick.btcPrice - 1;
+      if (Math.abs(chg) >= 0.02) { wake = true; why = `BTC ${(chg * 100).toFixed(2)}% 급변 → 예정보다 일찍`; }
+    } catch { /* 시세 실패 시 예정대로 */ }
+  }
+  if (!wake) { cleanup(); process.exit(0); }   // 조용히 건너뜀(크론 로그 오염 방지)
+  console.log(`${kst()} 깨움: ${why}`);
+}
+
 const env = { ...process.env, PATH: `/opt/homebrew/bin:${path.dirname(process.execPath)}:/usr/local/bin:/usr/bin:/bin` };
 const stamp = kst().replace(/[- :]/g, '').slice(0, 12);
 const out = path.join(D, 'runs', `${stamp}.json`), err = path.join(D, 'runs', `${stamp}.err`);
