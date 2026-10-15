@@ -24,7 +24,7 @@ import {
 const kst = (ts: number) => new Date(ts + 9 * 3600e3).toISOString().slice(5, 16).replace('T', ' ');
 const text = (s: string) => ({ content: [{ type: 'text' as const, text: s }] });
 const readLines = (f: string, n: number) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).slice(-n) : []);
-const fmt = (x: number) => (x === 0 ? "0" : Math.abs(x) >= 100 ? Math.round(x).toLocaleString() : x.toPrecision(5));
+const fmt = (x: number | null) => (x == null ? '-' : x === 0 ? "0" : Math.abs(x) >= 100 ? Math.round(x).toLocaleString() : x.toPrecision(5));
 
 const server = new McpServer({ name: 'upbit-paper', version: '1.0.0' });
 
@@ -68,6 +68,41 @@ server.tool('candles', '캔들(KST, 오래된→최근). 마지막 줄은 진행
   const raw = (u === 'day' ? await getUpbitClient().getCandlesDays(market, count) : await getUpbitClient().getCandlesMinutes(u as any, market, count)) as any[];
   const rows = raw.reverse().map((x) => `${x.candle_date_time_kst.slice(5, 16).replace('T', ' ')} ${fmt(x.opening_price)} ${fmt(x.high_price)} ${fmt(x.low_price)} ${fmt(x.trade_price)} ${(x.candle_acc_trade_price / 1e6).toFixed(0)}`);
   return text(`## ${market} ${interval} ${rows.length}개\n${rows.join('\n')}`);
+});
+
+/** 지표는 코드가 계산한다 — AI 가 손으로 SMA50 을 잘못 적고 30회 실행을 그 숫자로 판단한 일(2026-10-15)이 있었다 */
+server.tool('indicators', '코드가 계산한 지표. 일봉: SMA20/50/100/200·종가 대비 %, RSI14, RSI2, ATR14(%), 20일 고저·박스폭, 7/14/30일 수익, 실현변동성(20일, 연환산). 4h/1h: SMA20/50, RSI14, ATR14, 최근 N봉 고저. 확정봉 기준(진행 중인 봉 제외).', {
+  market: z.string(), interval: z.enum(['1h', '4h', '1d']).default('1d'),
+}, async ({ market, interval }) => {
+  const u = UNITS[interval];
+  let raw = (u === 'day' ? await getUpbitClient().getCandlesDays(market, 200) : await getUpbitClient().getCandlesMinutes(u as any, market, 200)) as any[];
+  if (u === 'day' && raw.length === 200) {   // SMA200 에 확정봉 200개가 필요 → 한 페이지 더
+    const older = (await getUpbitClient().getCandlesDays(market, 60, raw[raw.length - 1].candle_date_time_utc)) as any[];
+    raw = [...raw, ...older.filter((x) => x.candle_date_time_utc < raw[raw.length - 1].candle_date_time_utc)];
+  }
+  raw = raw.reverse();
+  const bars = raw.slice(0, -1);   // 마지막(진행 중) 제외
+  const c = bars.map((x) => x.trade_price as number), h = bars.map((x) => x.high_price as number), lo = bars.map((x) => x.low_price as number);
+  const n = c.length, last = c[n - 1];
+  const sma = (k: number) => (n >= k ? c.slice(-k).reduce((a, b) => a + b, 0) / k : null);
+  const rsi = (k: number) => { if (n < k + 1) return null; let g = 0, l = 0; for (let i = n - k; i < n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; } return l === 0 ? 100 : 100 - 100 / (1 + (g / k) / (l / k)); };
+  const atr = (k: number) => { if (n < k + 1) return null; let s = 0; for (let i = n - k; i < n; i++) s += Math.max(h[i] - lo[i], Math.abs(h[i] - c[i - 1]), Math.abs(lo[i] - c[i - 1])); return s / k / last * 100; };
+  const ret = (k: number) => (n > k ? (last / c[n - 1 - k] - 1) * 100 : null);
+  const hi20 = Math.max(...h.slice(-20)), lo20 = Math.min(...lo.slice(-20));
+  const f = (x: number | null, d = 2) => (x == null ? '-' : x.toFixed(d));
+  const pct = (m: number | null) => (m == null ? '-' : ((last / m - 1) * 100).toFixed(2) + '%');
+  const lines = [`## ${market} ${interval} 지표 (확정봉 ${n}개, 마지막 확정 ${bars[n - 1].candle_date_time_kst.slice(5, 16).replace('T', ' ')} KST 종가 ${fmt(last)})`];
+  if (interval === '1d') {
+    const rv = (() => { if (n < 21) return null; const r = []; for (let i = n - 20; i < n; i++) r.push(Math.log(c[i] / c[i - 1])); const m = r.reduce((a, b) => a + b, 0) / r.length; return Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (r.length - 1)) * Math.sqrt(365) * 100; })();
+    lines.push(`SMA20 ${fmt(sma(20))} (${pct(sma(20))}) · SMA50 ${fmt(sma(50))} (${pct(sma(50))}) · SMA100 ${fmt(sma(100))} (${pct(sma(100))}) · SMA200 ${fmt(sma(200))} (${pct(sma(200))})`,
+      `RSI14 ${f(rsi(14), 1)} · RSI2 ${f(rsi(2), 1)} · ATR14 ${f(atr(14))}% · 실현변동성(20일, 연) ${f(rv, 1)}%`,
+      `20일 고 ${fmt(hi20)} / 저 ${fmt(lo20)} · 박스폭 ${((hi20 / lo20 - 1) * 100).toFixed(1)}% · 종가 위치 ${(((last - lo20) / (hi20 - lo20)) * 100).toFixed(0)}%`,
+      `수익 7일 ${f(ret(7))}% · 14일 ${f(ret(14))}% · 30일 ${f(ret(30))}%`);
+  } else {
+    lines.push(`SMA20 ${fmt(sma(20))} (${pct(sma(20))}) · SMA50 ${fmt(sma(50))} (${pct(sma(50))}) · RSI14 ${f(rsi(14), 1)} · ATR14 ${f(atr(14))}%`,
+      `최근 20봉 고 ${fmt(hi20)} / 저 ${fmt(lo20)} · 최근 6봉 수익 ${f(ret(6))}% · 최근 24봉 ${f(ret(24))}%`);
+  }
+  return text(lines.join('\n'));
 });
 
 server.tool('orderbook', '호가창 상위 15단 + 스프레드(bp) + 양쪽 잔량 합.', { market: z.string() }, async ({ market }) => {
@@ -142,7 +177,7 @@ server.tool('journal_write', '이번 판단 기록. 매 실행 끝에 반드시 
 });
 
 server.tool('playbook_read', '내 매매 원칙 문서(스스로 다듬는 규칙집).', {}, async () => text(fs.existsSync(AT_PLAYBOOK_FILE) ? fs.readFileSync(AT_PLAYBOOK_FILE, 'utf8') : '(비어 있음)'));
-server.tool('playbook_update', '매매 원칙 문서를 통째로 교체. 근거(체결 결과)가 쌓였을 때만 고칠 것. 4,000자 이내.', { text: z.string().min(50).max(4000) }, async ({ text: t }) => {
+server.tool('playbook_update', '매매 원칙 문서를 통째로 교체. 언제든 고칠 수 있으나 무엇을 왜 바꿨는지 문서 안에 적을 것. 6,000자 이내.', { text: z.string().min(50).max(6000) }, async ({ text: t }) => {
   fs.mkdirSync(AT_DIR, { recursive: true });
   if (fs.existsSync(AT_PLAYBOOK_FILE)) fs.copyFileSync(AT_PLAYBOOK_FILE, AT_PLAYBOOK_FILE.replace(/\.md$/, `.${Date.now()}.bak.md`));
   fs.writeFileSync(AT_PLAYBOOK_FILE, t);

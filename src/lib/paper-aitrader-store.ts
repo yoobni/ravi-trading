@@ -31,12 +31,13 @@ export const AT_LIMIT_PEN = 0.002;
 /** 코드가 강제하는 위험 한도 */
 export const AT_LIMITS = {
   minOrderKrw: 10_000,
-  maxCoinPct: 0.35,              // 종목당 평가액 대비 최대 보유(대기 지정가 매수 포함)
-  maxPositions: 6,
-  maxOrdersPerDay: 30,           // KST 하루, 체결·대기 주문 합
+  // 2026-10-15 사용자 요청 "조금 더 자유를" — 35%/6종목/30건/50억/72h → 아래로 완화. 일 손실 한도만 그대로.
+  maxCoinPct: 0.50,              // 종목당 평가액 대비 최대 보유(대기 지정가 매수 포함)
+  maxPositions: 8,
+  maxOrdersPerDay: 40,           // KST 하루, 체결·대기 주문 합
   dailyLossStop: -0.05,          // KST 하루 시작 평가액 대비 −5% 면 그날 신규 매수 금지(매도는 허용)
-  minValue24hKrw: 5_000_000_000, // 24h 거래대금 50억 미만 종목은 매수 금지(체결 현실성)
-  limitMaxHours: 72,
+  minValue24hKrw: 3_000_000_000, // 24h 거래대금 30억 미만 종목은 매수 금지(체결 현실성)
+  limitMaxHours: 168,
   stable: new Set(['USDT', 'USDC', 'USDS', 'USD1', 'DAI', 'TUSD', 'PYUSD', 'FDUSD', 'USDE', 'RLUSD', 'EURC', 'USD0']),
 };
 

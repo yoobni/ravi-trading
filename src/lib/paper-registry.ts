@@ -40,7 +40,7 @@ export const SIMPLE_STRATEGIES: SimpleStrategy[] = [
     state: asFiles(true).state, trades: asFiles(true).trades, ticks: asFiles(true).ticks, initial: AS_INITIAL_CASH_KRW, fee: AS_FEE, stepMs: DAY },
   { id: 'RS_LAG_AI', name: 'RS_LAG_AI (RS_LAG + AI 거부권)', rule: 'RS_LAG 와 같고 AI 거부권 적용 — 폭락 코인을 사는 규칙이라 LUNA 형 재난(공지 전 뉴스) 차단이 핵심',
     state: rlFiles(true).state, trades: rlFiles(true).trades, ticks: rlFiles(true).ticks, initial: RL_INITIAL_CASH_KRW, fee: RL_FEE, stepMs: DAY },
-  { id: 'AI_TRADER', name: 'AI_TRADER (Opus 재량 매매)', rule: '15분마다 Claude Opus 가 시세·호가·뉴스·함대 신호를 보고 직접 매수·매도 · 종목당 35%·6종목·일 손실 −5% 매수정지·거래대금 50억 하한은 코드가 강제 · 시장가 = 호가창 VWAP, 지정가 = 0.2% 관통',
+  { id: 'AI_TRADER', name: 'AI_TRADER (Opus 재량 매매)', rule: '15분마다 Claude Opus 가 시세·호가·뉴스·함대 신호를 보고 직접 매수·매도 · 종목당 50%·8종목·일 손실 −5% 매수정지·거래대금 30억 하한은 코드가 강제 · 시장가 = 호가창 VWAP, 지정가 = 0.2% 관통',
     state: AT_STATE_FILE, trades: AT_TRADES_FILE, ticks: AT_TICKS_FILE, initial: AT_INITIAL_CASH_KRW, fee: AT_FEE, stepMs: 15 * 60_000 },
 ];
 /** 유의 공지 감시(paper-warning-watch)가 강제 청산하는 대상 — AI_TRADER 는 제외(자기 장부를 MCP 로만 만지고, 유의 코인 매수는 코드가 막는다) */

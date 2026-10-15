@@ -26,8 +26,8 @@ const prompt = `${fs.readFileSync('scripts/ai-trader/task.md', 'utf8')}\n\ní˜„ìž
 const r = spawnSync('claude', [
   '-p', prompt, '--model', 'opus',
   '--mcp-config', 'scripts/ai-trader/mcp.json', '--strict-mcp-config',
-  '--allowedTools', 'mcp__upbit-paper', 'WebSearch',
-  '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'Agent', 'Task',
+  '--allowedTools', 'mcp__upbit-paper', 'WebSearch', 'WebFetch',
+  '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'Agent', 'Task',
   '--output-format', 'json',
 ], { env, encoding: 'utf8', timeout: 12 * 60_000, maxBuffer: 64 * 1024 * 1024 });
 fs.writeFileSync(out, r.stdout || ''); fs.writeFileSync(err, (r.stderr || '') + (r.error ? `\n${r.error}` : ''));
